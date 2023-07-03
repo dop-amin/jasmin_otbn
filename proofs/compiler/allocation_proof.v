@@ -16,7 +16,9 @@ Section WITH_PARAMS.
 
 Context
   {asm_op syscall_state : Type}
-  {spp : SemPexprParams asm_op syscall_state}.
+  {ep : EstateParams syscall_state}
+  {spp : SemPexprParams}
+  {sip : SemInstrParams asm_op syscall_state}.
 
 Lemma wextend_typeP t1 t2 : 
   reflect (t1 = t2 \/ exists s1 s2, [/\ t1 = sword s1, t2 = sword s2 & (s1 <= s2)%CMP])
@@ -322,8 +324,8 @@ Proof.
   move=> v1' Hv1' <- Hu.
   case: x1 v1' h Hv1' (h) => t1 x1 /= /eqP ?;subst t1.
   case: x2 => t2 x2 h;rewrite /M.v_wextendty => /to_bool_undef ? /=;subst v1.
-  move=> h0; have ? := wextend_typeP_bool h0; subst t2; move: Hu => /eqP.
-  move=> /type_of_valI [? | [b ?]]; subst v2 => /=;
+  move=> h0; have ? := wextend_typeP_bool h0; subst t2; move: Hu => /eqP heq.
+  have := type_of_valI v2; rewrite -heq => -[? | [b ?]]; subst v2 => /=;
     eexists; (split; first reflexivity).
   + have hincl : @eval_uincl sbool sbool undef_error undef_error by done.
     by apply (eq_alloc_set h Hea hincl);eauto.
@@ -564,7 +566,7 @@ Section PROOF.
 
   Local Lemma HmkI : sem_Ind_mkI p1 ev Pi_r Pi.
   Proof.
-    move=> ii i s1 s2 _ Hi  r1 [? i2] r2 vm1 /Hi Hvm /= /Hvm [vm2 [??]].
+    move=> ii i s1 s2 _ Hi  r1 [? i2] r2 vm1 /Hi Hvm /= /add_iinfoP /Hvm [vm2 [??]].
     by exists vm2;split=>//;constructor.
   Qed.
 
@@ -862,10 +864,25 @@ Section PROOF.
     sem_call p1 ev scs mem f va scs' mem' vr ->
     exists vr', sem_call p2 ev scs mem f va scs' mem' vr' /\ List.Forall2 value_uincl vr vr'.
   Proof.
-    move=>
-      /(@sem_call_Ind _ _ _ _ _ _ p1 ev Pc Pi_r Pi Pfor Pfun Hskip Hcons HmkI Hassgn Hopn Hsyscall
-            Hif_true Hif_false Hwhile_true Hwhile_false Hfor Hfor_nil Hfor_cons Hcall Hproc).
-    move=> H;apply H.
+    move=> h.
+    apply:
+      (sem_call_Ind
+          Hskip
+          Hcons
+          HmkI
+          Hassgn
+          Hopn
+          Hsyscall
+          Hif_true
+          Hif_false
+          Hwhile_true
+          Hwhile_false
+          Hfor
+          Hfor_nil
+          Hfor_cons
+          Hcall
+          Hproc
+          h).
     by apply List_Forall2_refl.
   Qed.
 

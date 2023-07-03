@@ -2,10 +2,15 @@ open Prog
 
 val fill_in_missing_names : ('info, 'asm) Prog.func -> ('info, 'asm) Prog.func
 
+type retaddr = 
+  | StackDirect
+  | StackByReg of var
+  | ByReg of var
+
 type reg_oracle_t = {
     ro_to_save: var list;  (* TODO: allocate them in the stack rather than push/pop *)
     ro_rsp: var option;
-    ro_return_address: var option;
+    ro_return_address: retaddr;
   }
 
 module type Regalloc = sig
@@ -29,7 +34,6 @@ module type Regalloc = sig
     (Var0.Var.var -> var) -> ((unit, extended_op) func -> 'a -> bool) ->
     ('a * (unit, extended_op) func) list ->
     ('a * reg_oracle_t * (unit, extended_op) func) list
-    * (L.i_loc -> var option)
 end
 
 module Regalloc (Arch : Arch_full.Arch) :

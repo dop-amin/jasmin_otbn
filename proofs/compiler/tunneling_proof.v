@@ -3,8 +3,8 @@ Require Import ZArith.
 Require Import Utf8.
 
 Require Import oseq expr_facts compiler_util label linear linear_sem.
-Require Import sem_pexpr_params.
-Import ssrZ.
+Require Import sem_params.
+Import word_ssrZ.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
@@ -12,7 +12,7 @@ Unset Printing Implicit Defensive.
 
 Local Open Scope seq_scope.
 
-Require Import seq_extra xseq_extra unionfind tunneling unionfind_proof.
+Require Import seq_extra unionfind tunneling unionfind_proof.
 Require Import linear_sem.
 
 
@@ -21,7 +21,9 @@ Section WITH_PARAMS.
 
 Context
   {asm_op syscall_state : Type}
-  {spp : SemPexprParams asm_op syscall_state}
+  {ep : EstateParams syscall_state}
+  {spp : SemPexprParams}
+  {sip : SemInstrParams asm_op syscall_state}
   {ovm_i : one_varmap.one_varmap_info}.
 
 Section LprogSemProps.
@@ -109,20 +111,6 @@ Section LprogSemProps.
     by rewrite IHlf.
   Qed.
 
-  Lemma get_fundef_rcons lf (fn fn' : funname) (fd : lfundef) :
-    get_fundef (rcons lf (fn, fd)) fn' =
-    match get_fundef lf fn' with
-    | Some fd' => Some fd'
-    | None => (if fn == fn'
-              then Some fd
-              else None)
-    end.
-  Proof.
-    elim: lf => //= [|[fn'' fd''] lf ->].
-    + by rewrite eq_sym.
-    by case: ifP.
-  Qed.
-
   Lemma get_fundef_cat (lf1 lf2 : seq (funname * lfundef)) fn :
     get_fundef (lf1 ++ lf2) fn =
     match get_fundef lf1 fn with
@@ -136,16 +124,6 @@ Section LprogSemProps.
   Proof.
     elim: lf => //= -[fn' fd] lf IHlf; rewrite /fst /= -/fst in_cons.
     by case: ifP => [/eqP ? //=|_]; rewrite Bool.orb_false_l.
-  Qed.
-
-  Lemma get_fundef_all (T : Type) (funcs : seq (funname * T)) fn fd a :
-    get_fundef funcs fn = Some fd ->
-    all (fun f => a f.1 f.2) funcs ->
-    a fn fd.
-  Proof.
-    elim: funcs => //= -[fn' fd'] tfuncs IHfuncs.
-    case: ifP; first by move => /eqP ? [?] /= /andP [Ha _]; subst fn' fd'.
-    by move => _ /= Hgfd /andP [_ Hall]; apply: IHfuncs.
   Qed.
 
   Lemma get_fundef_map2 (g : funname -> lfundef -> lfundef) lf fn :
@@ -176,44 +154,6 @@ Section LprogSemProps.
     rewrite get_fundef_map2_only_fn -get_fundef_in.
     case: ifP => [/eqP ?|Hneqfn]; last by case: (get_fundef _ _).
     by subst fn'; rewrite /isSome; case: (get_fundef _ _).
-  Qed.
-
-  Lemma get_fundef_foldrW (A : Type) (P : A -> A -> Prop) (f : funname -> lfundef -> A -> A) lf :
-    (forall x, P x x) ->
-    (forall y x z, P x y -> P y z -> P x z) ->
-    uniq (map fst lf) ->
-    (forall fn fd x,
-      get_fundef lf fn = Some fd ->
-      P x (f fn fd x)) ->
-    forall x,
-      P x (foldr (fun p y => f p.1 p.2 y) x lf).
-  Proof.
-    move => HPrelf HPtrans.
-    elim: lf => //= -[fn fd] lf IHlf /andP [/negP Hnotin Huniq] Hlf x.
-    rewrite {1}/fst {1}/snd /=; rewrite {1}/fst in Hnotin.
-    set y:= (foldr _ _ _); apply: (HPtrans y); last by apply/Hlf => //; rewrite eq_refl.
-    rewrite /y; apply/IHlf => // fn' fd' {y} x' Hgfd'.
-    apply: Hlf => //; case: ifP => // /eqP ?; subst fn'.
-    exfalso; apply: Hnotin; rewrite -get_fundef_in.
-    by rewrite /isSome Hgfd'.
-  Qed.
-
-  Lemma get_fundef_exists lf fn (fd : lfundef) :
-    get_fundef lf fn = Some fd ->
-    List.Exists (λ p, (fn, fd) = p) lf.
-  Proof.
-    elim: lf => //= -[fn' fd'] lf IHlf.
-    case: ifP => [/eqP ? [?]|Hneq Hgfd].
-    + by subst fn' fd'; apply List.Exists_cons; left.
-    by apply List.Exists_cons; right; apply IHlf.
-  Qed.
-
-  Lemma map_foldr (T R : Type) (s1 : seq R) (s2 : seq T) f :
-    map (fun x => foldr f x s2) s1 = foldr (fun s => map (f s)) s1 s2.
-  Proof.
-    elim: s2 => //= [|x2 s2 <-]; first by rewrite map_id.
-    rewrite -map_comp; set f1:= (fun _ => _); set f2:= (_ \o _).
-    by rewrite (@eq_map _ _ f1 f2).
   Qed.
 
   Lemma map_fst_map_pair1 (g : funname -> lfundef -> lfundef) lf :
@@ -281,14 +221,6 @@ Section TunnelingProps.
     size (tunnel_engine fn lc lc') = size lc'.
   Proof. by rewrite /tunnel_engine size_tunnel_head. Qed.
 
-  Lemma size_tunnel_lcmd_pc fn lc pc :
-    size (tunnel_lcmd_pc fn lc pc) = size lc.
-  Proof. by rewrite /tunnel_lcmd_pc size_tunnel_engine. Qed.
-
-  Lemma size_tunnel_lcmd_fn_partial fn lc pc :
-    size (tunnel_lcmd_fn_partial fn lc pc) = size lc.
-  Proof. by rewrite /tunnel_lcmd_fn_partial size_tunnel_engine. Qed.
-
   Lemma size_tunnel_lcmd fn lc :
     size (tunnel_lcmd fn lc) = size lc.
   Proof. by rewrite /tunnel_lcmd size_tunnel_engine. Qed.
@@ -330,13 +262,6 @@ Section TunnelingProps.
     by rewrite funnames_setfunc.
   Qed.
 
-  Lemma funnames_tunnel_funcs_fn_partial lf fn pc :
-    map fst (tunnel_funcs_fn_partial lf fn pc) = map fst lf.
-  Proof.
-    rewrite /tunnel_funcs_fn_partial; case Hgfd: (get_fundef _ _) => [fd|//].
-    by rewrite funnames_setfunc.
-  Qed.
-
   Lemma funnames_tunnel_funcs_fn lf fn :
     map fst (tunnel_funcs_fn lf fn) = map fst lf.
   Proof.
@@ -344,31 +269,9 @@ Section TunnelingProps.
     by rewrite funnames_setfunc.
   Qed.
 
-  Lemma funnames_tunnel_funcs_partial lf n :
-    map fst (tunnel_funcs_partial lf n) = map fst lf.
-  Proof.
-    rewrite /tunnel_funcs_partial map_cat /tunnel_funcs map_fst_map_pair1.
-    by rewrite -map_cat cat_take_drop.
-  Qed.
-
   Lemma funnames_tunnel_funcs lf :
     map fst (tunnel_funcs lf) = map fst lf.
   Proof. by rewrite /tunnel_funcs map_fst_map_pair1. Qed.
-
-  Lemma get_fundef_tunnel_funcs_fn lf fn fn' :
-    get_fundef (tunnel_funcs_fn lf fn) fn' =
-    match get_fundef lf fn' with
-    | Some fd => if fn == fn' then Some (tunnel_lfundef fn fd) else Some fd
-    | None => None
-    end.
-  Proof.
-    rewrite /tunnel_funcs_fn; case Hgfd: (get_fundef lf fn) => [fd|].
-    + rewrite get_fundef_setfunc; case: ifP => [/eqP ?|].
-      - by subst fn'; rewrite -get_fundef_in Hgfd.
-      by case: (get_fundef _ _).
-    case Hgfd': (get_fundef _ _) => [fd'|//]; case: ifP => // /eqP ?.
-    by subst fn'; rewrite Hgfd in Hgfd'.
-  Qed.
 
   Lemma get_fundef_tunnel_funcs lf fn :
     get_fundef (tunnel_funcs lf) fn =
@@ -452,11 +355,16 @@ Section TunnelingProps.
       case: ifP; last by rewrite IHlc // labels_of_body_rcons /= rcons_uniq Hnotin'.
       by move => /eqP ?; subst fn'; rewrite eq_refl in Hneqfn.
     move: Hnor (IHlc c'' l) => {Heq IHlc}; case: c''' c'' => [ii' i'] [ii i].
+<<<<<<< HEAD
     by case: i => [? ? ?|?|?| | |? ?|[? ?]|?|? ?|? ?]; (case: i' => [? ? ?|?|?| | |? ?|[? ?]|?|? ?|? ?] //= _ IHlc);
+=======
+    by case: i => [? ? ?|?|? ?| | |? ?|[? ?]|?|? ?|? ?]; (case: i' => [? ? ?|?|? ?| | |? ?|[? ?]|?|? ?|? ?] //= _ IHlc);
+>>>>>>> main
     rewrite labels_of_body_rcons //= => Hnotin; (try by rewrite rcons_uniq => /andP [_]; apply IHl);
     (try by move: Hnotin; rewrite mem_rcons in_cons negb_or => /andP /= [_ Hnotin]; apply IHlc);
     rewrite rcons_uniq => /andP [_]; apply IHlc => //;
     move: Hnotin; rewrite mem_rcons in_cons negb_or => /andP [].
+<<<<<<< HEAD
   Qed.
 
   Lemma find_tunnel_plan_id fn lc l :
@@ -467,6 +375,8 @@ Section TunnelingProps.
     case/lastP: lc => //= lc c /negP Hnotin; apply/find_tunnel_plan_rcons_id.
     apply/negP => Hin; apply: Hnotin; rewrite labels_of_body_rcons; case: li_i => // *.
     by rewrite mem_rcons in_cons Hin orbT.
+=======
+>>>>>>> main
   Qed.
 
   Variant tunnel_bore_weak_spec fn uf : linstr -> linstr -> Type :=
@@ -661,7 +571,11 @@ Section TunnelingProps.
     + case: ifP; first by move => /eqP ?; subst fn'; rewrite eq_refl in Hneqfn. 
       by move => -> /= {Heq}; rewrite tunnel_head_empty.
     move: Hnor {Heq}; case c'' => [ii i]; case c''' => [ii' i'].
+<<<<<<< HEAD
     by case i => [? ? ?|?|?| | |[] ?|[? ?]|?|? ?|? ?]; (case i' => [? ? ?|?|?| | |[] ?|[? ?]|?|? ?|? ?] //=);
+=======
+    by case i => [? ? ?|?|? ?| | |[] ?|[? ?]|?|? ?|? ?]; (case i' => [? ? ?|? ?|?| | |[] ?|[? ?]|?|? ?|? ?] //=);
+>>>>>>> main
     rewrite ?tunnel_head_empty //; case: ifP; rewrite tunnel_head_empty.
   Qed.
 
@@ -900,18 +814,6 @@ Section TunnelingWFProps.
     by rewrite /tunnel_lfundef lfd_body_setfb; apply/well_formed_tunnel_lcmd.
   Qed.
 
-  Lemma well_formed_tunnel_funcs lf :
-    well_formed_funcs lf ->
-    well_formed_funcs (tunnel_funcs lf).
-  Proof.
-    rewrite tunnel_funcs_partial_eq => Hwf.
-    elim: (size lf) => [|n IHwf]; first by rewrite tunnel_funcs_partial0.
-    rewrite tunnel_funcs_partial_fn; last first.
-    + by move: Hwf; rewrite /well_formed_funcs => /andP [].
-    case Honth: (onth _ _) => [[fn fd]|//].
-    by apply/well_formed_tunnel_funcs_fn.
-  Qed.
-
   Lemma well_formed_tunnel_lprog_pc p fn pc :
     well_formed_lprog p ->
     well_formed_lprog (tunnel_lprog_pc p fn pc).
@@ -926,14 +828,6 @@ Section TunnelingWFProps.
   Proof.
     case: p => rip rsp globs lf; rewrite /well_formed_lprog /=.
     by apply well_formed_tunnel_funcs_fn.
-  Qed.
-
-  Lemma well_formed_tunnel_lprog p :
-    well_formed_lprog p ->
-    well_formed_lprog (tunnel_lprog p).
-  Proof.
-    case: p => rip rsp globs lf; rewrite /well_formed_lprog /=.
-    by apply well_formed_tunnel_funcs.
   Qed.
 
   Lemma tunnel_lprog_ind_pc (P : lprog -> lprog -> Prop) :
@@ -1076,7 +970,11 @@ Section TunnelingSem.
     case: tunnel_lcmd_pcP => [l l'|l l'|l l' fn' Hneq Hpc HSpc|Hneg].
     + rewrite /tunnel_head onth_map; case Honth: (onth _ _) => [[ii i]|]; last first.
       - by move => Hpc HSpc; apply FT_Otherwise; rewrite Hgfd eq_refl.
+<<<<<<< HEAD
       case: i Honth => [? ? ?|?|?| | |? ?|[fn l'']|?|? ?|pe l''] /= Honth Hpc HSpc /=.
+=======
+      case: i Honth => [? ? ?|?|? ?| | |? ?|[fn l'']|?|? ?|pe l''] /= Honth Hpc HSpc /=.
+>>>>>>> main
       1-6,8-9:
         by apply FT_Otherwise; rewrite Hgfd eq_refl.
       - case: ifP => [/eqP ?|Hneq]; last first.
@@ -1108,7 +1006,11 @@ Section TunnelingSem.
       by rewrite eq_refl /= => HFT; apply: HFT.
     + rewrite /tunnel_head onth_map; case Honth: (onth _ _) => [[ii i]|]; last first.
       - by move => Hpc HSpc; apply FT_Otherwise; rewrite Hgfd eq_refl.
+<<<<<<< HEAD
       case: i Honth => [? ? ?|?|?| | |? ?|[fn l'']|?|? ?|pe l''] /= Honth Hpc HSpc /=.
+=======
+      case: i Honth => [? ? ?|?|? ?| | |? ?|[fn l'']|?|? ?|pe l''] /= Honth Hpc HSpc /=.
+>>>>>>> main
       1-6,8-9:
         by apply FT_Otherwise; rewrite Hgfd eq_refl.
       - case: ifP => [/eqP ?|Hneq]; last first.
@@ -1219,7 +1121,12 @@ Section TunnelingSem.
     eval_instr (tunnel_lprog_pc p fn pc) =2 eval_instr p.
   Proof.
     move => Huniq [ii i] s; case: i => [ | | | | | |[fn' l]|pe|lv l|pe l] //=.
-    + move=> r; rewrite /eval_instr /= label_in_lprog_tunnel_lprog_pc //.
+    + move=> o r; rewrite /eval_instr /= label_in_lprog_tunnel_lprog_pc //.
+      case: o.
+      + move=> lr. rewrite tunnel_get_label_after_pc.
+        apply bind_eq => // l.
+        case: encode_label => // wl; apply bind_eq => // m.
+        by rewrite eval_jump_tunnel_lprog_pc.
       rewrite tunnel_get_label_after_pc.
       apply bind_eq => // u; apply bind_eq => // l.
       case: encode_label => // wl; apply bind_eq => // m.
@@ -1399,7 +1306,7 @@ Section TunnelingProof.
     rewrite /Q => {Q} s3 s4 s5 Htlsem34 Htlsem145 Hlsem34.
     apply (lsem_trans Hlsem34); case: (tunnel_lprog_pc_lsem1 Hwf Htlsem145).
     + by move => Hlsem145; apply Relation_Operators.rt_step.
-    by case => s6 [Hlsem146 Hlsem165]; apply (@lsem_trans _ _ _ _ p s6);
+    by case => s6 [Hlsem146 Hlsem165]; apply: (lsem_trans (s2 := s6));
     apply Relation_Operators.rt_step.
   Qed.
 
@@ -1542,12 +1449,6 @@ Section TunnelingProof.
     move => p fn pc Hwf; split => s1 s2; first by apply tunnel_lprog_pc_lsem.
     by apply lsem_tunnel_lprog_pc.
   Qed.
-
-  Lemma tunnel_lprog_lsem p s1 s2:
-    well_formed_lprog p ->
-    lsem (tunnel_lprog p) s1 s2 ->
-    lsem p s1 s2.
-  Proof. by move => Hwf; move : (lsem_tunnel_lprog_lsem Hwf) => [HP _]; apply HP. Qed.
 
   Lemma lsem_tunnel_lprog p s1 s2 :
     well_formed_lprog p ->

@@ -5,6 +5,7 @@ From mathcomp Require Import
 Require Import
   compiler_util
   expr
+  fexpr
   sopn
   utils.
 Require Export
@@ -25,9 +26,10 @@ Scheme Equality for arm_extra_op.
 
 Lemma arm_extra_op_eq_axiom : Equality.axiom arm_extra_op_beq.
 Proof.
-  move=> x y; apply:(iffP idP).
-  + by apply: internal_arm_extra_op_dec_bl.
-  by apply: internal_arm_extra_op_dec_lb.
+  exact:
+    (eq_axiom_of_scheme
+       internal_arm_extra_op_dec_bl
+       internal_arm_extra_op_dec_lb).
 Qed.
 
 Definition arm_extra_op_eqMixin :=
@@ -58,19 +60,19 @@ Instance arm_extra_op_decl : asmOp arm_extra_op | 1 :=
 Definition assemble_extra
            (ii: instr_info)
            (o: arm_extra_op)
-           (outx: lvals)
-           (inx: pexprs)
-           : cexec (asm_op_msb_t * lvals * pexprs) :=
+           (outx: lexprs)
+           (inx: rexprs)
+           : cexec (seq (asm_op_msb_t * lexprs * rexprs)) :=
   match o with
   end.
 
 #[ export ]
-Instance arm_extra :
+Instance arm_extra {atoI : arch_toIdent} :
   asm_extra register register_ext xregister rflag condt arm_op arm_extra_op :=
   { to_asm := assemble_extra }.
 
 (* This concise name is convenient in OCaml code. *)
-Definition arm_extended_op :=
+Definition arm_extended_op {atoI : arch_toIdent} :=
   @extended_op _ _ _ _ _ _ _ arm_extra.
 
-Definition Oarm o : @sopn arm_extended_op _ := Oasm (BaseOp (None, o)).
+Definition Oarm {atoI : arch_toIdent} o : @sopn arm_extended_op _ := Oasm (BaseOp (None, o)).

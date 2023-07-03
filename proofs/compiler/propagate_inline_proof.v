@@ -1,6 +1,6 @@
 (* ** Imports and settings *)
 From mathcomp Require Import all_ssreflect all_algebra.
-Require Import psem constant_prop constant_prop_proof.
+Require Import psem psem_facts constant_prop constant_prop_proof.
 Require Export propagate_inline.
 
 Import Utf8 ZArith Morphisms Classes.RelationClasses.
@@ -15,7 +15,9 @@ Local Open Scope vmap_scope.
 
 Record h_propagate_inline_params
   {asm_op syscall_state : Type}
-  {spp : SemPexprParams asm_op syscall_state} :=
+  {ep : EstateParams syscall_state}
+  {spp : SemPexprParams}
+  {sip : SemInstrParams asm_op syscall_state} :=
   {
     pip_cf_xsemP :
       forall gd s e0 e1 e2 e3 cf v,
@@ -29,7 +31,9 @@ Section WITH_PARAMS.
 
 Context
   {asm_op syscall_state : Type}
-  {spp : SemPexprParams asm_op syscall_state}
+  {ep : EstateParams syscall_state}
+  {spp : SemPexprParams}
+  {sip : SemInstrParams asm_op syscall_state}
   {T : eqType}
   {pT : progT T}
   {sCP : semCallParams}
@@ -125,12 +129,7 @@ Proof.
   by move=> [v] [->] /value_uinclE ->.
 Qed.
 
-Lemma sbeqE e1 e2 b : 
-  sem_pexpr gd s (Papp2 Obeq e1 e2) = ok (Vbool b) ->
-  sem_pexpr gd s (sbeq e1 e2) = ok (Vbool b).
-Proof. by move=> /sbeqP [v] [-> /value_uinclE ->]. Qed.
-
-Lemma sbeqE' e0 e1 b0 b1 :
+Lemma sbeqE e0 e1 b0 b1 :
   sem_pexpr gd s e0 = ok (Vbool b0) ->
   sem_pexpr gd s e1 = ok (Vbool b1) ->
   sem_pexpr gd s (sbeq e0 e1) = ok (Vbool (b0 == b1)).
@@ -189,7 +188,7 @@ Proof.
   all: have h1 := ih1 b1 hv1.
   all:
     solve
-      [ exact: (sandE h0 h1) | exact: (sorE h0 h1) | exact: (sbeqE' h0 h1) ].
+      [ exact: (sandE h0 h1) | exact: (sorE h0 h1) | exact: (sbeqE h0 h1) ].
 Qed.
 
 Lemma cf_esem_ssem e0 e1 e2 e3 cf b :
@@ -334,29 +333,6 @@ Proof.
 Qed.
 
 End Expr.
-
-Section UseMem.
-
-Context (s1 s2 : estate) (heq : evm s1 = evm s2).
-
-Lemma use_memP e: 
-  ~~use_mem e -> 
-  sem_pexpr gd s1 e = sem_pexpr gd s2 e.
-Proof.
-  apply (pexpr_mut_ind (P := fun e => ~~use_mem e -> sem_pexpr gd s1 e = sem_pexpr gd s2 e)
-                      (Q := fun e => ~~has use_mem e -> sem_pexprs gd s1 e = sem_pexprs gd s2 e)).
-  split => //= {e}.
-  + by move=> e hrec es hrecs; rewrite negb_or => /andP [] /hrec -> /hrecs ->. 
-  + by move=> x _; rewrite heq.
-  + by move=> ?? x e hrec /hrec ->; rewrite heq.
-  + by move=> ??? x e hrec /hrec ->; rewrite heq.
-  + by move=> ? e hrec /hrec ->.
-  + by move=> ? e1 hrec1 e2 hrec2; rewrite negb_or => /andP[] /hrec1 -> /hrec2 ->.
-  + by move=> ? es; rewrite /sem_pexprs => h/h->.
-  by move=> ty e he e1 he1 e2 he2; rewrite !negb_or=> /andP[]/andP[] /he-> /he1-> /he2->.
-Qed.
-
-End UseMem.
 
 Lemma write_var_valid_pi s s' pi x v : 
   valid_pi s pi -> 
@@ -777,10 +753,28 @@ Section PROOF.
     sem_call p1 ev scs mem f va scs' mem' vr ->
     exists vr', sem_call p2 ev scs mem f va' scs' mem' vr' /\ List.Forall2 value_uincl vr vr'.
   Proof.
-    by move=>
-      /(@sem_call_Ind _ _ _ _ _ _ p1 ev Pc Pi_r Pi Pfor Pfun Hskip Hcons HmkI Hassgn Hopn Hsyscall
-            Hif_true Hif_false Hwhile_true Hwhile_false Hfor Hfor_nil Hfor_cons Hcall Hproc)
-      h /h [vr' h1 h2]; exists vr'.
+    move=> hall hsem.
+    have [vr' ??] :=
+      sem_call_Ind
+        Hskip
+        Hcons
+        HmkI
+        Hassgn
+        Hopn
+        Hsyscall
+        Hif_true
+        Hif_false
+        Hwhile_true
+        Hwhile_false
+        Hfor
+        Hfor_nil
+        Hfor_cons
+        Hcall
+        Hproc
+        hsem
+        _
+        hall.
+    by exists vr'.
   Qed.
 
 End PROOF.

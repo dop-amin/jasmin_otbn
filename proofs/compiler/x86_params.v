@@ -1,15 +1,17 @@
 From mathcomp Require Import all_ssreflect all_algebra.
-From mathcomp.word Require Import ssrZ.
+From mathcomp Require Import word_ssrZ.
 
 Require Import
   arch_params
   compiler_util
-  expr.
+  expr
+  fexpr.
 Require Import
   clear_stack
   linearization
   lowering
-  stack_alloc.
+  stack_alloc
+  slh_lowering.
 Require Import
   arch_decl
   arch_extra
@@ -25,26 +27,24 @@ Set Implicit Arguments.
 Unset Strict Implicit.
 Unset Printing Implicit Defensive.
 
+Section Section.
+Context {atoI : arch_toIdent}.
+
+Let flags_lexprs :=
+  map (fun f => LLvar (mk_var_i (to_var f))) [:: OF; CF; SF; PF; ZF ].
+
+(* Used to set up stack. *)
+Definition x86_op_align (x : var_i) (ws : wsize) (al : wsize) : fopn_args :=
+  let eflags := flags_lexprs in
+  let ex := Rexpr (Fvar x) in
+  let emask := fconst ws (- wsize_size al) in
+  (eflags ++ [:: LLvar x ], Ox86 (AND ws), [:: ex; Rexpr emask ]).
 
 (* ------------------------------------------------------------------------ *)
 (* Stack alloc parameters. *)
 
 Definition lea_ptr x y tag ofs : instr_r :=
   Copn [:: x] tag (Ox86 (LEA Uptr)) [:: add y (cast_const ofs)].
-
-Section IS_REGX.
-
-Context (is_regx : var -> bool).
-
-Variant mov_kind :=
-  | MK_LEA
-  | MK_MOV.
-
-Definition mk_mov vpk :=
-  match vpk with
-  | VKglob _ | VKptr (Pdirect _ _ _ _ Sglob) => MK_LEA
-  | _ => MK_MOV
-  end.
 
 Definition x86_mov_ofs x tag vpk y ofs :=
   let addr :=
@@ -53,62 +53,109 @@ Definition x86_mov_ofs x tag vpk y ofs :=
       lea_ptr x y tag ofs
     else
       if ofs == 0%Z
-      then mov_ws is_regx Uptr x y tag
+      then mov_ws Uptr x y tag
       else lea_ptr x y tag ofs
   in
   Some addr.
 
-End IS_REGX.
+Definition x86_immediate x z :=
+  mov_ws Uptr (Lvar x) (cast_const z) AT_none.
 
-Definition x86_saparams is_regx : stack_alloc_params :=
+Definition x86_saparams : stack_alloc_params :=
   {|
-    sap_mov_ofs := x86_mov_ofs is_regx;
+    sap_mov_ofs := x86_mov_ofs;
+    sap_immediate := x86_immediate;
   |}.
 
 (* ------------------------------------------------------------------------ *)
 (* Linearization parameters. *)
 
+Section LINEARIZATION.
+
+Notation vtmpi := {| v_var := to_var RAX; v_info := dummy_var_info; |}.
+
 Definition x86_allocate_stack_frame (rspi: var_i) (sz: Z) :=
-  let rspg := Gvar rspi Slocal in
-  let p := Papp2 (Osub (Op_w Uptr)) (Pvar rspg) (cast_const sz) in
-  ([:: Lvar rspi ], Ox86 (LEA Uptr), [:: p ]).
+  let p := Fapp2 (Osub (Op_w Uptr)) (Fvar rspi) (fconst Uptr sz) in
+  ([:: LLvar rspi ], Ox86 (LEA Uptr), [:: Rexpr p ]).
 
 Definition x86_free_stack_frame (rspi: var_i) (sz: Z) :=
-  let rspg := Gvar rspi Slocal in
-  let p := Papp2 (Oadd (Op_w Uptr)) (Pvar rspg) (cast_const sz) in
-  ([:: Lvar rspi ], Ox86 (LEA Uptr), [:: p ]).
+  let p := Fapp2 (Oadd (Op_w Uptr)) (Fvar rspi) (fconst Uptr sz) in
+  ([:: LLvar rspi ], Ox86 (LEA Uptr), [:: Rexpr p ]).
 
-Definition x86_ensure_rsp_alignment (rspi: var_i) (al: wsize) :=
-  let to_lvar x := Lvar (VarI (to_var x) dummy_var_info) in
-  let eflags := List.map to_lvar [:: OF ; CF ; SF ; PF ; ZF ] in
-  let p0 := Pvar (Gvar rspi Slocal) in
-  let p1 := cast_const (- wsize_size al) in
-  (eflags ++ [:: Lvar rspi ], Ox86 (AND Uptr), [:: p0; p1 ]).
-
-Definition x86_lassign (x: lval) (ws: wsize) (e: pexpr) :=
+(* TODO: consider using VMOVDQA when the address is known to be aligned *)
+Definition x86_lassign (x: lexpr) (ws: wsize) (e: rexpr) :=
   let op := if (ws <= U64)%CMP
             then MOV ws
             else VMOVDQU ws
-  in Some ([:: x ], Ox86 op, [:: e ]).
+  in ([:: x ], Ox86 op, [:: e ]).
+
+Definition x86_set_up_sp_register
+  (rspi : var_i) (sf_sz : Z) (al : wsize) (r : var_i) : seq fopn_args :=
+  let i0 := x86_lassign (LLvar r) Uptr (Rexpr (Fvar rspi)) in
+  let i1 := x86_allocate_stack_frame rspi sf_sz in
+  let i2 := x86_op_align rspi Uptr al in
+  [:: i0; i1; i2 ].
+
+Definition x86_set_up_sp_stack
+  (rspi : var_i) (sf_sz : Z) (al : wsize) (off : Z) : seq fopn_args :=
+  let vtmpg := Fvar vtmpi in
+  let i := x86_lassign (Store Uptr rspi (fconst Uptr off)) Uptr (Rexpr vtmpg) in
+  x86_set_up_sp_register rspi sf_sz al vtmpi ++ [:: i ].
 
 Definition x86_liparams : linearization_params :=
   {|
-    lip_tmp := "RAX"%string;
+    lip_tmp := vname (v_var vtmpi);
+    lip_not_saved_stack := [::];
     lip_allocate_stack_frame := x86_allocate_stack_frame;
     lip_free_stack_frame := x86_free_stack_frame;
-    lip_ensure_rsp_alignment := x86_ensure_rsp_alignment;
-    lip_lassign := x86_lassign;
+    lip_set_up_sp_register :=
+      fun rspi sf_sz al r => Some (x86_set_up_sp_register rspi sf_sz al r);
+    lip_set_up_sp_stack :=
+      fun rspi sf_sz al off => Some (x86_set_up_sp_stack rspi sf_sz al off);
+    lip_lassign := fun x ws e => Some (x86_lassign x ws e);
   |}.
+
+End LINEARIZATION.
 
 (* ------------------------------------------------------------------------ *)
 (* Lowering parameters. *)
 
-Definition x86_loparams : lowering_params fresh_vars lowering_options :=
+Definition x86_loparams : lowering_params lowering_options :=
   {|
     lop_lower_i := lower_i;
     lop_fvars_correct := fvars_correct;
   |}.
 
+
+(* ------------------------------------------------------------------------ *)
+(* Speculative execution operator lowering parameters. *)
+
+Definition lflags := nseq 5 (Lnone dummy_var_info sbool).
+
+Definition x86_sh_lower
+  (lvs : seq lval)
+  (slho : slh_op)
+  (es : seq pexpr) :
+  option copn_args :=
+  let O x := Oasm (ExtOp x) in
+  match slho with
+  | SLHinit   => Some (lvs, O Ox86SLHinit, es)
+
+  | SLHupdate => Some (Lnone dummy_var_info ty_msf :: lvs, O Ox86SLHupdate, es)
+
+  | SLHmove   => Some (lvs, O (Ox86SLHmove), es)
+
+  | SLHprotect ws =>
+    let extra := if (ws <= U64)%CMP then lflags else [:: Lnone dummy_var_info (sword ws)] in
+    Some (extra ++ lvs, O (Ox86SLHprotect ws), es)
+
+  | SLHprotect_ptr _ | SLHprotect_ptr_fail _ => None (* Taken into account by stack alloc *)
+  end.
+
+Definition x86_shparams : sh_params :=
+  {|
+    shp_lower := x86_sh_lower;
+  |}.
 
 (* ------------------------------------------------------------------------ *)
 (* Assembly generation parameters. *)
@@ -157,36 +204,35 @@ Definition of_var_e_bool ii (v: var_i) : cexec rflag :=
   | None => Error (asm_gen.E.invalid_flag ii v)
   end.
 
-Fixpoint assemble_cond_r ii (e : pexpr) : cexec condt :=
+Fixpoint assemble_cond_r ii (e : fexpr) : cexec condt :=
   match e with
-  | Pvar v =>
-      Let r := of_var_e_bool ii (gv v) in
+  | Fvar v =>
+      Let r := of_var_e_bool ii v in
       match r with
       | OF => ok O_ct
       | CF => ok B_ct
       | ZF => ok E_ct
       | SF => ok S_ct
       | PF => ok P_ct
-      | DF => Error (E.berror ii e "Cannot branch on DF")
       end
 
-  | Papp1 Onot e =>
+  | Fapp1 Onot e =>
       Let c := assemble_cond_r ii e in
       ok (not_condt c)
 
-  | Papp2 Oor e1 e2 =>
+  | Fapp2 Oor e1 e2 =>
       Let c1 := assemble_cond_r ii e1 in
       Let c2 := assemble_cond_r ii e2 in
       or_condt ii e c1 c2
 
-  | Papp2 Oand e1 e2 =>
+  | Fapp2 Oand e1 e2 =>
       Let c1 := assemble_cond_r ii e1 in
       Let c2 := assemble_cond_r ii e2 in
       and_condt ii e c1 c2
 
-  | Papp2 Obeq (Pvar x1) (Pvar x2) =>
-      Let r1 := of_var_e_bool ii (gv x1) in
-      Let r2 := of_var_e_bool ii (gv x2) in
+  | Fapp2 Obeq (Fvar x1) (Fvar x2) =>
+      Let r1 := of_var_e_bool ii x1 in
+      Let r2 := of_var_e_bool ii x2 in
       if ((r1 == SF) && (r2 == OF)) || ((r1 == OF) && (r2 == SF))
       then ok NL_ct
       else Error (E.berror ii e "Invalid condition (NL)")
@@ -195,7 +241,7 @@ Fixpoint assemble_cond_r ii (e : pexpr) : cexec condt :=
 
   end.
 
-Definition assemble_cond ii (e: pexpr) : cexec condt :=
+Definition assemble_cond ii (e: fexpr) : cexec condt :=
   assemble_cond_r ii e.
 
 Definition x86_agparams : asm_gen_params :=
@@ -213,11 +259,8 @@ Section RSP.
 
 Context (rspi : var_i).
 
-Let vlocal {t T} {_ : ToString t T} (x : T) : gvar :=
-  {|
-    gv := {| v_info := dummy_var_info; v_var := to_var x; |};
-    gs := Slocal;
-  |}.
+Let vlocal {t T} {_ : ToString t T} {_ : ToIdent T} (x : T) : gvar :=
+  mk_lvar (mk_var_i (to_var x)).
 
 Let tmp : gvar := vlocal RSI.
 Let off : gvar := vlocal RDI.
@@ -232,29 +275,27 @@ Let ri   : var_i := gv r.
 Let vlri : var_i := gv vlr.
 Let zfi : var_i := gv zf.
 
-Let flags_lv :=
-  map
-    (fun f => Lvar {| v_info := dummy_var_info; v_var := to_var f; |})
-    [:: OF; CF; SF; PF; ZF ].
+Notation rvar := (fun v => Rexpr (Fvar v)) (only parsing).
+Notation rconst := (fun ws imm => Rexpr (fconst ws imm)) (only parsing).
 
 Definition x86_clear_stack_loop_small (lbl : label) ws_align ws (max_stk_size : Z) : lcmd :=
   (* tmp = rsp; *)
-  let i0 := Lopn [:: Lvar tmpi ] (Ox86 (MOV U64)) [:: Pvar rsp ] in
+  let i0 := Lopn [:: LLvar tmpi ] (Ox86 (MOV U64)) [:: rvar rspi ] in
 
   (* tmp &= - (wsize_size ws_align); *)
   let i1 :=
     Lopn
-      (flags_lv ++ [:: Lvar tmpi ])
+      (flags_lexprs ++ [:: LLvar tmpi ])
       (Ox86 (AND U64))
-      [:: Pvar tmp; pword_of_int U64 (- wsize_size ws_align)%Z ]
+      [:: rvar tmpi; rconst U64 (- wsize_size ws_align)%Z ]
   in
 
   (* off = -max_stk_size; *)
   let i2 :=
     Lopn
-      [:: Lvar offi ]
+      [:: LLvar offi ]
       (Ox86 (MOV U64))
-      [:: pword_of_int U64 (- max_stk_size)%Z ]
+      [:: rconst U64 (- max_stk_size)%Z ]
   in
 
   (* l1: *)
@@ -262,47 +303,42 @@ Definition x86_clear_stack_loop_small (lbl : label) ws_align ws (max_stk_size : 
 
   (* (ws)[tmp + off] = 0; *)
   let i4 :=
-    Lopn [:: Lmem ws tmpi (Pvar off) ] (Ox86 (MOV ws)) [:: pword_of_int ws 0 ]
+    Lopn [:: Store ws tmpi (Fvar offi) ] (Ox86 (MOV ws)) [:: rconst ws 0 ]
   in
 
   (* ?{zf}, off = #ADD(off, wsize_size ws); *)
   let i5 :=
     Lopn
-      (flags_lv ++ [:: Lvar offi ])
+      (flags_lexprs ++ [:: LLvar offi ])
       (Ox86 (ADD U64))
-      [:: Pvar off; pword_of_int U64 (wsize_size ws) ]
+      [:: rvar offi; rconst U64 (wsize_size ws) ]
   in
 
   (* if (!zf) goto l1 *)
-  let i6 := Lcond (Papp1 Onot (Pvar zf)) lbl in
+  let i6 := Lcond (Fapp1 Onot (Fvar zfi)) lbl in
 
   map (MkLI dummy_instr_info) [:: i0; i1; i2; i3; i4; i5; i6 ].
-
-Definition i1 := Lopn [:: Lvar tmpi ] (Ox86 (MOV U64)) [:: Pvar rsp ].
 
 (* we read rsp first, so that we are sure that we don't modify it ; otherwise,
    we would have to add hypotheses like rsp <> XMM2 *)
 Definition x86_clear_stack_loop_large (lbl : label) ws_align ws (max_stk_size : Z) : lcmd :=
   (* tmp = rsp; *)
-  let i1 := Lopn [:: Lvar tmpi ] (Ox86 (MOV U64)) [:: Pvar rsp ] in
+  let i1 := Lopn [:: LLvar tmpi ] (Ox86 (MOV U64)) [:: rvar rspi ] in
 
   (* ymm = #set0_ws(); *)
-  let i0 := Lopn [:: Lvar vlri ] (Oasm (ExtOp (Oset0 ws))) [::] in
+  let i0 := Lopn [:: LLvar vlri ] (Oasm (ExtOp (Oset0 ws))) [::] in
 
   (* tmp &= - (wsize_size ws_align); *)
   let i2 :=
     Lopn
-      (flags_lv ++ [:: Lvar tmpi ])
+      (flags_lexprs ++ [:: LLvar tmpi ])
       (Ox86 (AND U64))
-      [:: Pvar tmp; pword_of_int U64 (- wsize_size ws_align)%Z ]
+      [:: rvar tmpi; rconst U64 (- wsize_size ws_align)%Z ]
   in
 
   (* off = -max_stk_size; *)
   let i3 :=
-    Lopn
-      [:: Lvar offi ]
-      (Ox86 (MOV U64))
-      [:: pword_of_int U64 (- max_stk_size)%Z ]
+    Lopn [:: LLvar offi ] (Ox86 (MOV U64)) [:: rconst U64 (- max_stk_size)%Z ]
   in
 
   (* l1: *)
@@ -310,19 +346,19 @@ Definition x86_clear_stack_loop_large (lbl : label) ws_align ws (max_stk_size : 
 
   (* (ws)[tmp + off] = ymm; *)
   let i5 :=
-    Lopn [:: Lmem ws tmpi (Pvar off) ] (Ox86 (VMOVDQU ws)) [:: Pvar vlr ]
+    Lopn [:: Store ws tmpi (Fvar offi) ] (Ox86 (VMOVDQU ws)) [:: rvar vlri ]
   in
 
   (* ?{zf}, off = #ADD(off, wsize_size ws); *)
   let i6 :=
     Lopn
-      (flags_lv ++ [:: Lvar offi ])
+      (flags_lexprs ++ [:: LLvar offi ])
       (Ox86 (ADD U64))
-      [:: Pvar off; pword_of_int U64 (wsize_size ws) ]
+      [:: rvar offi; rconst U64 (wsize_size ws) ]
   in
 
   (* if (!zf) goto l1 *)
-  let i7 := Lcond (Papp1 Onot (Pvar zf)) lbl in
+  let i7 := Lcond (Fapp1 Onot (Fvar zfi)) lbl in
 
   map (MkLI dummy_instr_info) [:: i1; i0; i2; i3; i4; i5; i6; i7 ].
 
@@ -332,22 +368,22 @@ Definition x86_clear_stack_loop lbl ws_align ws max_stk_size :=
 
 Definition x86_clear_stack_unrolled_small ws_align ws (max_stk_size : Z) : lcmd :=
   (* tmp = rsp; *)
-  let i0 := Lopn [:: Lvar tmpi ] (Ox86 (MOV U64)) [:: Pvar rsp ] in
+  let i0 := Lopn [:: LLvar tmpi ] (Ox86 (MOV U64)) [:: rvar rspi ] in
 
   (* tmp &= - (wsize_size ws_align); *)
   let i1 :=
     Lopn
-      (flags_lv ++ [:: Lvar tmpi ])
+      (flags_lexprs ++ [:: LLvar tmpi ])
       (Ox86 (AND U64))
-      [:: Pvar tmp; pword_of_int U64 (- wsize_size ws_align)%Z ]
+      [:: rvar tmpi; rconst U64 (- wsize_size ws_align)%Z ]
   in
 
   (* (ws)[tmp + off] = 0; *)
   let f off :=
     Lopn
-      [:: Lmem ws tmpi (pword_of_int U64 (- off)) ]
+      [:: Store ws tmpi (fconst U64 (- off)) ]
       (Ox86 (MOV ws))
-      [:: pword_of_int ws 0 ]
+      [:: rconst ws 0 ]
   in
 
   let offs := map (fun x => x * wsize_size ws)%Z (rev (ziota 1 (max_stk_size / wsize_size ws))) in
@@ -356,25 +392,25 @@ Definition x86_clear_stack_unrolled_small ws_align ws (max_stk_size : Z) : lcmd 
 
 Definition x86_clear_stack_unrolled_large ws_align ws (max_stk_size : Z) : lcmd :=
   (* tmp = rsp; *)
-  let i1 := Lopn [:: Lvar tmpi ] (Ox86 (MOV U64)) [:: Pvar rsp ] in
+  let i1 := Lopn [:: LLvar tmpi ] (Ox86 (MOV U64)) [:: rvar rspi ] in
 
   (* ymm = #set0_ws(); *)
-  let i0 := Lopn [:: Lvar vlri ] (Oasm (ExtOp (Oset0 ws))) [::] in
+  let i0 := Lopn [:: LLvar vlri ] (Oasm (ExtOp (Oset0 ws))) [::] in
 
   (* tmp &= - (wsize_size ws_align); *)
   let i2 :=
     Lopn
-      (flags_lv ++ [:: Lvar tmpi ])
+      (flags_lexprs ++ [:: LLvar tmpi ])
       (Ox86 (AND U64))
-      [:: Pvar tmp; pword_of_int U64 (- wsize_size ws_align)%Z ]
+      [:: rvar tmpi; rconst U64 (- wsize_size ws_align)%Z ]
   in
 
   (* (ws)[tmp + off] = ymm; *)
   let f off :=
     Lopn
-      [:: Lmem ws tmpi (pword_of_int U64 (- off)) ]
+      [:: Store ws tmpi (fconst U64 (- off)) ]
       (Ox86 (VMOVDQU ws))
-      [:: Pvar vlr ]
+      [:: rvar vlri ]
   in
 
   let offs := map (fun x => x * wsize_size ws)%Z (rev (ziota 1 (max_stk_size / wsize_size ws))) in
@@ -408,18 +444,23 @@ Definition x86_csparams : clear_stack_params :=
 Definition x86_is_move_op (o : asm_op_t) :=
   match o with
   | BaseOp (None, MOV _) => true
+  | BaseOp (None, VMOVDQA _) => true
   | BaseOp (None, VMOVDQU _) => true
+  | ExtOp Ox86SLHmove => true
   | _ => false
   end.
 
 (* ------------------------------------------------------------------------ *)
 
-Definition x86_params : architecture_params fresh_vars lowering_options :=
+Definition x86_params : architecture_params lowering_options :=
   {|
     ap_sap := x86_saparams;
     ap_lip := x86_liparams;
     ap_lop := x86_loparams;
     ap_agp := x86_agparams;
     ap_csp := x86_csparams;
+    ap_shp := x86_shparams;
     ap_is_move_op := x86_is_move_op;
   |}.
+
+End Section.

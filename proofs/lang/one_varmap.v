@@ -27,11 +27,7 @@ Section Section.
 
 Context {pd: PointerData} {asm_op} {asmop:asmOp asm_op} {ovm_i : one_varmap_info}
   (p: sprog)
-  (extra_free_registers: instr_info → option var)
 .
-
-Definition extra_free_registers_at ii : Sv.t :=
-  if extra_free_registers ii is Some r then Sv.singleton r else Sv.empty.
 
 Let vgd : var := vid p.(p_extra).(sp_rip).
 Let vrsp : var := vid p.(p_extra).(sp_rsp).
@@ -49,10 +45,10 @@ Definition ra_vm (e: stk_fun_extra) (x: var) : Sv.t :=
   match e.(sf_return_address) with
   | RAreg ra =>
     Sv.singleton ra
-  | RAstack _ =>
-    Sv.empty
-  | RAnone =>
-    Sv.add x vflags
+  | RAstack ra _ =>
+    if ra is Some ra then Sv.singleton ra else Sv.empty
+  | RAnone => 
+   Sv.add x vflags
   end.
 
 Definition ra_undef fd (x: var) :=

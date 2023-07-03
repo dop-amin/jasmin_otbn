@@ -2,19 +2,21 @@ open Utils
 (*--------------------------------------------------------------------- *)
 let version_string = "Jasmin Compiler @VERSION@"
 (*--------------------------------------------------------------------- *)
-let infile = ref ""
 let outfile = ref ""
 let latexfile = ref ""
 let debug = ref false
+let timings = ref false
 let print_list = ref []
 let ecfile = ref ""
 let ec_list = ref []
 let ec_array_path = ref Filename.current_dir_name
+let slice = ref []
 let check_safety = ref false
 let safety_param = ref None
 let safety_config = ref None
 let stop_after = ref None
 let safety_makeconfigdoc = ref None   
+let trust_aligned = ref false
 
 let help_version = ref false
 let help_intrinsics = ref false
@@ -24,6 +26,7 @@ let color = ref Auto
 let ct_list = ref None
 let infer   = ref false 
 
+let sct_list = ref None
 
 let lea = ref false
 let set0 = ref false
@@ -66,6 +69,9 @@ let set_ec f =
 let set_ec_array_path p =
   ec_array_path := p
 
+let set_slice f =
+  slice := f :: !slice
+
 let set_constTime () = model := ConstantTime
 let set_safety () = model := Safety
 
@@ -91,6 +97,17 @@ let set_ct_on s =
     Some (match !ct_list with
           | None -> [s]
           | Some l -> s::l)
+
+let set_sct () =
+  if !sct_list = None then sct_list := Some []
+
+let set_sct_on s =
+  sct_list :=
+    Some (match !sct_list with
+          | None -> [s]
+          | Some l -> s::l)
+
+let sct_comp_pass = ref Compiler.ParamsExpansion
 
 let parse_jasmin_path s =
   s |> String.split_on_char ':' |> List.map (String.split ~by:"=")
@@ -132,6 +149,7 @@ let print_strings = function
   | Compiler.RemoveGlobal                -> "rmglobals", "remove globals variables"
   | Compiler.MakeRefArguments            -> "makeref"  , "add assignments before and after call to ensure that arguments and results are ref ptr"
   | Compiler.LowerInstruction            -> "lowering" , "lowering of instructions"
+  | Compiler.SLHLowering                  -> "slhlowering" , "selective load hardening lowering of instructions"
   | Compiler.PropagateInline             -> "propagate", "propagate inline variables"
   | Compiler.StackAllocation             -> "stkalloc" , "stack allocation"
   | Compiler.RemoveReturn                -> "rmreturn" , "remove unused returned values"
@@ -141,6 +159,17 @@ let print_strings = function
   | Compiler.ClearStack                  -> "clearstack", "stack clearing"
   | Compiler.Tunneling                   -> "tunnel"   , "tunneling"
   | Compiler.Assembly                    -> "asm"      , "generation of assembly"
+
+let compiler_step_symbol =
+  List.map (fun s -> fst (print_strings s)) Compiler.compiler_step_list
+
+let symbol2pass =
+  let tbl = Hashtbl.create 101 in
+  List.iter (fun s -> Hashtbl.add tbl (fst (print_strings s)) s) Compiler.compiler_step_list;
+  fun s -> Hashtbl.find tbl s
+
+let set_sct_comp_pass s =
+ sct_comp_pass := symbol2pass s
 
 let print_option p =
   let s, msg = print_strings p in
@@ -154,8 +183,9 @@ let options = [
     "-version" , Arg.Set help_version  , "display version information about this compiler (and exits)";
     "-o"       , Arg.Set_string outfile, "[filename]: name of the output file";
     "-debug"   , Arg.Set debug         , ": print debug information";
+    "-timings" , Arg.Set timings       , ": print a timestamp and elapsed time after each pass";
     "-I"       , Arg.String set_idirs  , "[ident:path]: bind ident to path for from ident require ...";
-    "-latex"     , Arg.Set_string latexfile, "[filename]: generate the corresponding LATEX file";
+    "-latex"   , Arg.Set_string latexfile, "[filename]: generate the corresponding LATEX file (deprecated)";
     "-lea"     , Arg.Set lea           , ": use lea as much as possible (default is nolea)";
     "-nolea"   , Arg.Clear lea         , ": try to use add and mul instead of lea";
     "-set0"     , Arg.Set set0          , ": use [xor x x] to set x to 0 (default is not)";
@@ -167,6 +197,10 @@ let options = [
     "-checkCT", Arg.Unit set_ct         , ": checks that the full program is constant time (using a type system)";
     "-checkCTon", Arg.String set_ct_on  , "[f]: checks that the function [f] is constant time (using a type system)";
     "-infer"    , Arg.Set infer         , "infers security level annotations of the constant time type system";          
+    "-checkSCT", Arg.Unit set_sct       , ": checks that the full program is speculative constant time (using a type system)";
+    "-checkSCTon", Arg.String set_sct_on, "[f]: checks that the function [f] is speculative constant time (using a type system)";
+    "-checkSCTafter", Arg.Symbol(compiler_step_symbol, set_sct_comp_pass), "start sct checker after given pass";
+    "-slice"    , Arg.String set_slice  , "[f]: keep function [f] and all what it needs";
     "-safety", Arg.Unit set_safety      , ": generates model for safety verification";
     "-checksafety", Arg.Unit set_checksafety, ": automatically check for safety";
     "-safetyparam", Arg.String set_safetyparam,
@@ -178,6 +212,7 @@ let options = [
      len_1,...,len_k: input lengths of f_i";
      "-safetyconfig", Arg.String set_safetyconfig, "[filename]: use filename (JSON) as configuration file for the safety checker";
     "-safetymakeconfigdoc", Arg.String set_safety_makeconfigdoc, "[dir]: make the safety checker configuration docs in [dir]";
+    "-nocheckalignment", Arg.Set trust_aligned, "do not report alignment issue as safety violations";
     "-wlea", Arg.Unit (add_warning UseLea), ": print warning when lea is used";
     "-w_"  , Arg.Unit (add_warning IntroduceNone), ": print warning when extra _ is introduced";
     "-wea", Arg.Unit (add_warning ExtraAssignment), ": print warning when extra assignment is introduced";
@@ -202,6 +237,8 @@ let usage_msg = "Usage : jasminc [option] filename"
 
 (* -------------------------------------------------------------------- *)
 let eprint step pp_prog p =
+  if !timings then
+    Format.eprintf "%t after %s@." pp_now (fst (print_strings step));
   if List.mem step !print_list then begin
     let (_, msg) = print_strings step in
     Format.printf

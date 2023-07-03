@@ -1,12 +1,40 @@
 (* ** Imports and settings *)
 Require Import Setoid Morphisms.
 From mathcomp Require Import all_ssreflect all_algebra.
-Require Import strings utils gen_map type ident.
+Require Import strings utils gen_map type ident tagged.
 Require Import Utf8.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
 Unset Printing Implicit Defensive.
+
+(* ------------------------------------------------------------------------- *)
+
+
+Module FunName : TaggedCore.
+  Import PrimInt63.
+  Definition t : Type := int.
+  Definition tag (x : t) : int := x.
+
+  Lemma tagI : injective tag.
+  Proof. done. Qed.
+
+End FunName.
+
+Module TFunName <: TAGGED with Definition t := FunName.t
+  := Tagged (FunName).
+
+#[global] Canonical funname_eqType  := Eval compute in TFunName.t_eqType.
+
+Module Mf  := TFunName.Mt.
+Module Sf  := TFunName.St.
+Module SfP := TFunName.StP.
+Module SfD := TFunName.StD.
+
+Definition funname := FunName.t.
+
+Definition get_fundef {T} (p: seq (funname * T)) (f: funname) :=
+  xseq.assoc p f.
 
 (* ** Variables map, to be used when computation is needed
  * -------------------------------------------------------------------- *)
@@ -312,6 +340,30 @@ Proof. by apply: contra => /eqP ->. Qed.
 Lemma vname_diff x x': vname x != vname x' -> x != x'.
 Proof. by apply: contra => /eqP ->. Qed.
 
+(* ------------------------------------------------------------------------- *)
+Definition is_glob_var (x: var) : bool :=
+  if Ident.id_kind x.(vname) is Global then true else false.
+
+Definition is_inline_var (x: var) : bool :=
+  if Ident.id_kind x.(vname) is Inline then true else false.
+
+Definition is_var_in_memory (x: var) : bool :=
+  match Ident.id_kind x.(vname) with
+  | Stack _ | Reg (_, Pointer _) | Global => true
+  | Const | Inline | Reg (_, Direct) => false
+  end.
+
+Definition is_ptr (x: var) : bool :=
+  match Ident.id_kind x.(vname) with
+  | Reg (_, Pointer _) | Stack (Pointer _) => true
+  | _ => false end.
+
+Definition is_reg_ptr (x: var) : bool :=
+  if Ident.id_kind x.(vname) is Reg (_, Pointer _) then true else false.
+
+Definition is_regx (x: var) : bool :=
+  if Ident.id_kind x.(vname) is Reg(Extra, _) then true else false.
+
 (* ** Variables function: to be not used if computation is needed,
  *                       but extentianality is permited
  * -------------------------------------------------------------------- *)
@@ -394,6 +446,18 @@ Arguments Fv.get to vm%vmap_scope x.
 Arguments Fv.set to vm%vmap_scope x v.
 Arguments Fv.ext_eq to vm1%vmap_scope vm2%vmap_scope.
 
+(* Attempt to simplify goals of the form [vm.[y0 <- z0]...[yn <- zn].[x]]. *)
+Ltac t_vm_get :=
+  repeat (
+    rewrite Fv.setP_eq
+    || (rewrite Fv.setP_neq; last (apply/eqP; by [|apply/nesym]))
+  ).
+
+(* Deduce inequalities from [~ Sv.In x (Sv.add y0 (... (Sv.add yn s)))]. *)
+Ltac t_notin_add :=
+  repeat (move=> /Sv.add_spec /Decidable.not_or [] ?);
+  move=> ?.
+
 Module Type Vmap.
 
   Parameter t : (stype -> Type) -> Type.
@@ -432,6 +496,7 @@ Module CmpVar.
 
 End CmpVar.
 
+(* FIXME: move this *)
 Module SExtra (T : CmpType).
 
 Module Sv := Smake T.
@@ -528,6 +593,15 @@ Lemma Sv_Subset_union_right (a b c: Sv.t) :
   Sv.Subset a c → Sv.Subset a (Sv.union b c).
 Proof. SvD.fsetdec. Qed.
 
+Lemma Sv_union_empty (a : Sv.t) :
+  Sv.Equal (Sv.union Sv.empty a) a.
+Proof. SvD.fsetdec. Qed.
+
+(* ---------------------------------------------------------------- *)
+
+Definition sv_of_option (oa : option Sv.elt) : Sv.t :=
+  omap_dflt Sv.empty Sv.singleton oa.
+
 (* ---------------------------------------------------------------- *)
 Definition sv_of_list T (f: T → Sv.elt) : seq T → Sv.t :=
   foldl (λ s r, Sv.add (f r) s) Sv.empty.
@@ -552,6 +626,20 @@ Proof.
   rewrite /sv_of_list.
   elim: m Sv.empty => // a m ih z.
   by rewrite /= ih.
+Qed.
+
+Lemma sv_of_list_mem_head X f (x : X) xs :
+  Sv.mem (f x) (sv_of_list f (x :: xs)).
+Proof. rewrite sv_of_listE. exact: mem_head. Qed.
+
+Lemma sv_of_list_mem_tail X f v (x : X) xs :
+  Sv.mem v (sv_of_list f xs)
+  -> Sv.mem v (sv_of_list f (x :: xs)).
+Proof.
+  rewrite !sv_of_listE.
+  rewrite in_cons.
+  move=> ->.
+  exact: orbT.
 Qed.
 
 Lemma disjoint_subset_diff xs ys :
@@ -616,6 +704,27 @@ Proof.
   clear.
   SvD.fsetdec.
 Qed.
+
+Lemma disjoint_singleton x s :
+  disjoint (Sv.singleton x) s = ~~ Sv.mem x s.
+Proof.
+  case: disjointP; case: Sv_memP => //.
+  - move => H K; elim: (K _ _ H); SvD.fsetdec.
+  by move => H K; elim: K => y /Sv.singleton_spec ->.
+Qed.
+
+Lemma Sv_equal_add_add x s :
+  Sv.Equal (Sv.add x (Sv.add x s)) (Sv.add x s).
+Proof. SvD.fsetdec. Qed.
+
+Lemma Sv_neq_not_in_singleton x y :
+  x <> y
+  -> ~ Sv.In y (Sv.singleton x).
+Proof. SvD.fsetdec. Qed.
+
+Lemma Sv_subset_remove s x :
+  Sv.subset (Sv.remove x s) s.
+Proof. apply/Sv.subset_spec. by apply: SvP.MP.subset_remove_3. Qed.
 
 End SExtra.
 

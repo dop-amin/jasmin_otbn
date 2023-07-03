@@ -1,5 +1,5 @@
 (* ** Imports and settings *)
-From mathcomp.word Require Import ssrZ.
+From mathcomp Require Import word_ssrZ.
 Require Import compiler_util expr ZArith constant_prop.
 Require Import
   flag_combination.
@@ -18,16 +18,6 @@ Module Import E.
 
 End E.
 
-
-Fixpoint use_mem (e : pexpr) :=
-  match e with 
-  | Pconst _ | Pbool _ | Parr_init _ | Pvar _ => false 
-  | Pload _ _ _ => true
-  | Pget _ _ _ e | Psub _ _ _ _ e | Papp1 _ e => use_mem e 
-  | Papp2 _ e1 e2 => use_mem e1 || use_mem e2 
-  | PappN _ es => has use_mem es 
-  | Pif _ e e1 e2 => use_mem e || use_mem e1 || use_mem e2 
-  end.
 
 (* -------------------------------------------------------------------------- *)
 (* ** Data structure used for the analisys                                    *)
@@ -81,9 +71,6 @@ Context
   {asm_op syscall_state : Type}
   {asmop:asmOp asm_op}
   {fcp : FlagCombinationParams}.
-
-Definition sbneq e1 e2 := 
-  snot (sbeq e1 e2).
 
 Definition scfc (cf : combine_flags) (es : seq pexpr) : pexpr :=
   if es is [:: eof; ecf; esf; ezf ]

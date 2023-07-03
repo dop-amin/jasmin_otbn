@@ -2,7 +2,7 @@
 
 (* ** Imports and settings *)
 From mathcomp Require Import all_ssreflect all_algebra.
-From mathcomp.word Require Import ssrZ.
+From mathcomp Require Import word_ssrZ.
 Require Import Psatz xseq.
 Require Export strings warray_.
 Import Utf8.
@@ -26,6 +26,8 @@ Definition sem_ot (t:stype) : Type :=
   else sem_t t.
 
 Definition sem_tuple ts := ltuple (map sem_ot ts).
+
+Notation wmsf := (word msf_size).
 
 (* -------------------------------------------------------------------- *)
 

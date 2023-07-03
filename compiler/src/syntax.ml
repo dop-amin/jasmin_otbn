@@ -147,7 +147,9 @@ let string_of_peop2 : peop2 -> string =
   | `Le s -> f s "<="
   | `Gt s -> f s ">"
   | `Ge s -> f s ">="
- 
+
+(* -------------------------------------------------------------------- *)
+module W = Wsize
 
 (* -------------------------------------------------------------------- *)
 
@@ -197,6 +199,8 @@ type peqop = [
   | `Add  of castop 
   | `Sub  of castop
   | `Mul  of castop
+  | `Div  of castop
+  | `Mod  of castop
   | `ShR  of castop
   | `ROR  of castop
   | `ROL  of castop

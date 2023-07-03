@@ -132,8 +132,12 @@ let merge_slices params a s1 s2 =
   else
     let s1, s2 = if c < 0 then s1, s2 else s2, s1 in
     let x = s1.in_var in
+    let y = s2.in_var in
     let lo = fst s2.range - fst s1.range in
-    Mv.add x { s2 with range = lo, lo + size_of x.v_ty } a
+    let hi = lo + size_of x.v_ty in
+    if lo < 0 || size_of y.v_ty < hi
+    then hierror_no_loc "merging slices %a and %a may introduce invalid accesses; consider declaring variable %a smaller" pp_slice s1 pp_slice s2 pp_var x;
+    Mv.add x { s2 with range = lo, hi } a
 
 (* Precondition: both maps are normalized *)
 let merge params a1 a2 =
@@ -157,7 +161,8 @@ let slice_of_pexpr a =
   | Parr_init _ -> None
   | Pvar x -> Some (normalize_gvar a x)
   | Psub (aa, ws, len, x, i) -> Some (normalize_asub a aa ws len x i)
-  | (Pconst _ | Pbool _ | Pget _ | Pload _ | Papp1 _ | Papp2 _ | PappN _ | Pif _) -> assert false
+  | (Pconst _ | Pbool _ | Pget _ | Pload _ | Papp1 _ | Papp2 _ | PappN _ ) -> assert false
+  | Pif _ -> hierror_no_loc "conditional move of (ptr) arrays is not supported yet"
 
 let slice_of_lval a =
   function
@@ -182,6 +187,10 @@ let link_array_return params a xs es cc =
         )
         a xs cc
 
+let opn_cc o = 
+  match o with
+  | Sopn.Oslh (SLHprotect_ptr_fail _) -> Some [Some 0]
+  | _ -> None 
 
 let rec analyze_instr_r params cc a =
   function
@@ -189,7 +198,12 @@ let rec analyze_instr_r params cc a =
   | Ccall (_, xs, fn, es) -> link_array_return params a xs es (cc fn)
   | Csyscall (xs, o, es) -> link_array_return params a xs es (syscall_cc o)
   | Cassgn (x, _, ty, e) -> if is_ty_arr ty then assign_arr params a x e else a
-  | Copn _ -> a
+  (* A special case for protect_ptr which is a kind of move *)
+  | Copn (xs, _, o, es) -> 
+    begin match opn_cc o with 
+    | None -> a 
+    | Some l -> link_array_return params a xs es l
+    end
   | Cif(_, s1, s2) ->
      let a1 = analyze_stmt params cc a s1 |> normalize_map in
      let a2 = analyze_stmt params cc a s2 |> normalize_map in

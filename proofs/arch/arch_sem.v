@@ -1,9 +1,9 @@
 From mathcomp Require Import all_ssreflect all_algebra.
-From mathcomp.word Require Import ssrZ.
+From mathcomp Require Import word_ssrZ.
 Require oseq.
 Require Import ZArith
 utils
-strings wsize
+strings
 memory_model
 (* word *)
 global
@@ -11,10 +11,9 @@ oseq
 Utf8
 Relation_Operators
 sem_type
-arch_decl
 syscall syscall_sem
 label
-values.
+arch_decl.
 
 Set   Implicit Arguments.
 Unset Strict Implicit.

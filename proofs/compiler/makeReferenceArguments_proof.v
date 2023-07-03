@@ -15,7 +15,9 @@ Section SemInversion.
 
 Context
   {asm_op syscall_state : Type}
-  {spp : SemPexprParams asm_op syscall_state}
+  {ep : EstateParams syscall_state}
+  {spp : SemPexprParams}
+  {sip : SemInstrParams asm_op syscall_state}
   (T : eqType)
   (pT : progT T)
   (cs : semCallParams)
@@ -30,19 +32,6 @@ Lemma sem_consI s1 i c s2 (P : estate -> instr -> cmd -> estate -> Prop) :
   (forall s3, sem_I p ev s1 i s3 -> sem p ev s3 c s2 -> P s1 i c s2) ->
   sem p ev s1 (i::c) s2 -> P s1 i c s2.
 Proof. by move=> h /semE [s3 [] /h]. Qed.
-
-Lemma set_var_rename (vm vm' vm'' : vmap) (x y : var) (v : value) :
-     vtype x = vtype y
-  -> set_var vm x v = ok vm'
-  -> exists vm''', set_var vm'' y v = ok vm'''.
-Proof.
-case: x y => [ty nx] [? ny] /= <-.
-set x := {| vname := nx |}; set y := {| vname := ny |}.
-apply: set_varP => /=.
-+ by move=> t okt /esym vm'E ; exists vm''.[y <- ok t] ; rewrite /set_var okt.
-+ move=> tybool tyvE /esym vm'E; exists vm''.[y <- pundef_addr ty].
-  by rewrite /set_var tybool tyvE.
-Qed.
 
 Section SemInversionSeq1.
   Context (s1 : estate) (i : instr) (s2 : estate).
@@ -64,12 +53,13 @@ Section WITH_PARAMS.
 
 Context
   {asm_op syscall_state : Type}
-  {spp : SemPexprParams asm_op syscall_state}
-  (is_reg_ptr : var -> bool)
-  (fresh_id : Ident.ident → stype → Ident.ident).
+  {eparams : EstateParams syscall_state}
+  {spparams : SemPexprParams}
+  {siparams : SemInstrParams asm_op syscall_state}
+  (fresh_id : instr_info → Ident.name → stype → Ident.ident).
 
   Lemma make_referenceprog_globs (p p' : uprog) :
-    makereference_prog is_reg_ptr fresh_id p = ok p' ->
+    makereference_prog fresh_id p = ok p' ->
       p.(p_globs) = p'.(p_globs).
   Proof.
     case: p p' => [???] [???]; t_xrbindP.
@@ -77,33 +67,33 @@ Context
   Qed.
 
   Section MakeEpilogueInd.
-  Variable P : seq (bool * Ident.ident * stype) -> lvals -> seq pseudo_instr -> Prop.
+  Variable P : Hexadecimal.uint → seq (bool * Ident.name * stype) -> lvals -> seq pseudo_instr -> Prop.
   Variable (ii : instr_info) (X:Sv.t).
 
-  Hypothesis P0 : P [::] [::] [::].
+  Hypothesis P0 : ∀ ctr, P ctr [::] [::] [::].
 
   Hypothesis PSNone :
-    forall b x ty xftys lv lvs args,
-         is_reg_ptr_lval is_reg_ptr fresh_id b x ty lv = None
-      -> make_pseudo_epilogue is_reg_ptr fresh_id ii X xftys lvs = ok args
-      -> P xftys lvs args
-      -> P ((b,x,ty) :: xftys) (lv :: lvs) (PI_lv lv :: args).
+    forall ctr b x ty xftys lv lvs args,
+         is_reg_ptr_lval fresh_id ii ctr b x ty lv = None
+      -> make_pseudo_epilogue fresh_id ii X ctr xftys lvs = ok args
+      -> P ctr xftys lvs args
+      -> P ctr ((b,x,ty) :: xftys) (lv :: lvs) (PI_lv lv :: args).
 
   Hypothesis PSSome :
-    forall b x ty xftys lv lvs (y : var_i) args,
+    forall ctr b x ty xftys lv lvs (y : var_i) args,
        ~~Sv.mem y X
-    -> is_reg_ptr_lval is_reg_ptr fresh_id b x ty lv = Some y
-    -> make_pseudo_epilogue is_reg_ptr fresh_id ii X xftys lvs = ok args
-    -> P xftys lvs args
-    -> P ((b, x, ty) :: xftys) (lv :: lvs) (PI_lv (Lvar y) :: (PI_i lv ty y) :: args).
+    -> is_reg_ptr_lval fresh_id ii ctr b x ty lv = Some y
+    -> make_pseudo_epilogue fresh_id ii X (Hexadecimal.Little.succ ctr) xftys lvs = ok args
+    -> P (Hexadecimal.Little.succ ctr) xftys lvs args
+    -> P ctr ((b, x, ty) :: xftys) (lv :: lvs) (PI_lv (Lvar y) :: (PI_i lv ty y) :: args).
 
-  Lemma make_pseudo_epilogueW xftys lvs args :
-       make_pseudo_epilogue is_reg_ptr fresh_id ii X xftys lvs = ok args
-    -> P xftys lvs args.
+  Lemma make_pseudo_epilogueW ctr xftys lvs args :
+       make_pseudo_epilogue fresh_id ii X ctr xftys lvs = ok args
+    -> P ctr xftys lvs args.
   Proof.
-  elim: xftys lvs args.
-  + by move=> [] //= ? [<-]; apply P0.
-  move=> [[b x] ty] xfty ih [] //= lv lvs args.
+  elim: xftys lvs args ctr.
+  + by move=> [] //= ?? [<-]; apply P0.
+  move=> [[b x] ty] xfty ih [] //= lv lvs args ctr.
   case E: is_reg_ptr_lval; last first.
   + by t_xrbindP => ?? <-; apply/PSNone/ih.
   by t_xrbindP => ??? <-; apply/PSSome/ih.
@@ -114,7 +104,7 @@ Context
   Context (p p' : uprog).
   Let ev : unit := tt.
 
-  Hypothesis Hp : makereference_prog is_reg_ptr fresh_id p = ok p'.
+  Hypothesis Hp : makereference_prog fresh_id p = ok p'.
 
   Inductive sem_pis ii : estate -> seq pseudo_instr -> values -> estate -> Prop :=
    | SPI_nil : forall s, sem_pis ii s [::] [::] s
@@ -152,7 +142,7 @@ Context
    by move => y _ <-.
   Qed.
 
-  Lemma eq_funcs : map_cfprog (update_fd is_reg_ptr fresh_id p) (p_funcs p) = ok (p_funcs p').
+  Lemma eq_funcs : map_cfprog (update_fd fresh_id p) (p_funcs p) = ok (p_funcs p').
   Proof.
     move : Hp; rewrite /makereference_prog.
     by t_xrbindP => fdecls Hmap_cfprog <- /=.
@@ -180,27 +170,26 @@ Context
   rewrite /truncate_val; case: t v => [||q|w].
   + by move=> x; t_xrbindP=> b bE <-.
   + by move=> x; t_xrbindP=> i iE <-.
-  + move=> x; t_xrbindP=> a aE <- /=.
-    by rewrite /WArray.cast Z.leb_refl /=; case: (a).
+  + by move=> x; t_xrbindP=> a aE <- /=; rewrite WArray.castK.
   + move=> x; t_xrbindP=> w' w'E <- /=.
     by rewrite truncate_word_u.
   Qed.
 
-  Lemma is_reg_ptr_lval_ty b x ty lv y:
-     is_reg_ptr_lval is_reg_ptr fresh_id b x ty lv = Some y -> vtype y = ty.
+  Lemma is_reg_ptr_lval_ty ii ctr b x ty lv y:
+     is_reg_ptr_lval fresh_id ii ctr b x ty lv = Some y -> vtype y = ty.
   Proof. by case: lv => //= [? | _ _ _ ? _ [<-] //]; case: ifP => // _ [<-]. Qed.
 
-  Lemma make_pseudo_codeP ii X xtys lvs pis s1 s2 vm1 vs vst:
-    make_pseudo_epilogue is_reg_ptr fresh_id ii X xtys lvs = ok pis ->
+  Lemma make_pseudo_codeP ii X ctr xtys lvs pis s1 s2 vm1 vs vst:
+    make_pseudo_epilogue fresh_id ii X ctr xtys lvs = ok pis ->
     mapM2 ErrType truncate_val (map snd xtys) vs = ok vst ->
     Sv.Subset (Sv.union (read_rvs lvs) (vrvs lvs)) X ->
     write_lvals (p_globs p) s1 lvs vst = ok s2 ->
     evm s1 =[X] vm1 ->
     exists2 vm2,sem_pis ii (with_vm s1 vm1) pis vst (with_vm s2 vm2) & evm s2 =[X] vm2.
   Proof.
-    move=> h; elim /make_pseudo_epilogueW : h s1 vm1 vs vst => {xtys lvs pis}.
-    + by move=> s1 vm1 [] // _ [] <- _ [<-] ?; exists vm1 => //; constructor.
-    + move=> b x ty xtys lv lvs pis hnone _ ih s1 vm1 [ //| v vs] vst' /=.
+    move=> h; elim /make_pseudo_epilogueW : h s1 vm1 vs vst => {ctr xtys lvs pis}.
+    + by move=> _ s1 vm1 [] // _ [] <- _ [<-] ?; exists vm1 => //; constructor.
+    + move=> ctr b x ty xtys lv lvs pis hnone _ ih s1 vm1 [ //| v vs] vst' /=.
       t_xrbindP => vt ht vst hts <- {vst'}.
       rewrite read_rvs_cons vrvs_cons => leX /=.
       t_xrbindP => s1' hw hws eqvm.
@@ -211,7 +200,7 @@ Context
       move=> vm2' ih1 ih2; exists vm2' => //.
       econstructor; eauto.
       by rewrite -eq_globs.
-    move=> b x ty xtys lv lvs y pis /Sv_memP hyX hsome _ ih s1 vm1 [ //| v vs] vst' /=.
+    move=> ctr b x ty xtys lv lvs y pis /Sv_memP hyX hsome _ ih s1 vm1 [ //| v vs] vst' /=.
     t_xrbindP => vt ht vst hts <- {vst'}.
     rewrite read_rvs_cons vrvs_cons => leX /=.
     t_xrbindP => s1' hw hws eqvm.
@@ -288,7 +277,7 @@ Context
       case: (write_lval_eq_on _ hw heq1); first by SvD.fsetdec.
       move=> vm2 [ heq2 ?];exists vm2; split.
       + econstructor; eauto.
-        rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) //.
+        rewrite -read_e_eq_on_empty //.
         by rewrite read_eE => z hz; apply heq1; SvD.fsetdec.
       by move=> z hz;apply heq2; SvD.fsetdec.
     + move=> s1 s2 t o xs es.
@@ -297,7 +286,7 @@ Context
       case: (write_lvals_eq_on _ hw heq1); first by SvD.fsetdec.
       move=> vm2 [heq2 hw2]; exists vm2; split => //.
       econstructor; eauto.
-      rewrite /sem_sopn -(@read_es_eq_on _ _ _ _ _ X) //; last first.
+      rewrite /sem_sopn -(read_es_eq_on _ (s := X)) //; last first.
       + by move=> z;rewrite read_esE => hz;apply heq1; SvD.fsetdec.
       by rewrite hes /= hex /= hw2.
       by apply: eq_onI heq2; SvD.fsetdec.
@@ -306,7 +295,7 @@ Context
       case: (write_lvals_eq_on _ hw heq1); first by SvD.fsetdec.
       move=> vm2 [heq2 hw2]; exists vm2; split => //.
       econstructor; eauto.
-      rewrite -(@read_es_eq_on _ _ _ _ _ X) //; last first.
+      rewrite -(read_es_eq_on _ (s := X)) //; last first.
       + by move=> z;rewrite read_esE => hz;apply heq1; SvD.fsetdec.
       by apply: eq_onI heq2; SvD.fsetdec.
     + move=> s1 s2 e c1 c2 he _ ih vm1 X.
@@ -314,14 +303,14 @@ Context
       case: (ih vm1 X _ heq1); first SvD.fsetdec.
       move=> vm2 [hs2 heq2]; exists vm2;split => //.
       apply Eif_true => //.
-      rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) //.
+      rewrite -read_e_eq_on_empty //.
       by rewrite read_eE; apply: eq_onI heq1; SvD.fsetdec.
     + move=> s1 s2 e c1 c2 he _ ih vm1 X.
       rewrite read_i_if => hsub heq1.
       case: (ih vm1 X _ heq1); first SvD.fsetdec.
       move=> vm2 [hs2 heq2]; exists vm2;split => //.
       apply Eif_false => //.
-      rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) //.
+      rewrite -read_e_eq_on_empty //.
       by rewrite read_eE; apply: eq_onI heq1; SvD.fsetdec.
     + move=> s1 s2 s3 s4 a c1 e c2 _ ih1 he _ ih2 _ ihw vm1 X.
       rewrite read_i_while => hsub heq1.
@@ -330,20 +319,23 @@ Context
       move=> vm3 [hs2 heq3]; case: (ihw vm3 X _ heq3); first by rewrite read_i_while.
       move=> vm4 [hs3 heq4]; exists vm4; split => //.
       apply: Ewhile_true; eauto.
-      rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) //.
+      rewrite -read_e_eq_on_empty //.
       by rewrite read_eE; apply: eq_onI heq2; SvD.fsetdec.
     + move=> s1 s2 a c1 e c2 _ ih1 he vm1 X.
       rewrite read_i_while => hsub heq1.
       case: (ih1 vm1 X _ heq1); first SvD.fsetdec.
       move=> vm2 [hs1 heq2]; exists vm2; split => //.
       apply: Ewhile_false; eauto.
-      rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) //.
+      rewrite -read_e_eq_on_empty //.
       by rewrite read_eE; apply: eq_onI heq2; SvD.fsetdec.
     + move=> s1 s2 i d lo hi c vlo vhi hlo hhi _ ih vm1 X.
       rewrite read_i_for => hsub heq1.
       case: (ih vm1 X _ heq1); first by SvD.fsetdec.
       move=> vm2 [? heq2]; exists vm2; split => //.
-      by econstructor; eauto; rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) // read_eE; apply: eq_onI heq1; SvD.fsetdec.
+      by econstructor;
+        eauto;
+        rewrite -read_e_eq_on_empty // read_eE;
+        apply: eq_onI heq1; SvD.fsetdec.
     + move=> s1 i c vm1 X hsub heq1.
       by exists vm1; split => //;constructor.
     + move=> s1 s2 s3 s4 i z zs c hwi _ ihc _ ihf vm1 X hsub heq1.
@@ -357,7 +349,7 @@ Context
       case: (write_lvals_eq_on _ hw heq1); first by SvD.fsetdec.
       move=> vm2 [heq2 hw2]; exists vm2; split; last by apply: eq_onI heq2; SvD.fsetdec.
       econstructor; eauto.
-      by rewrite -(@read_es_eq_on _ _ _ _ _ X) // read_esE;
+      by rewrite -(read_es_eq_on _ (s := X)) // read_esE;
         apply: eq_onI heq1;
         SvD.fsetdec.
     done.
@@ -409,15 +401,15 @@ Context
     sem_pexpr gd s2 e = ok v.
   Proof.
     move=> hs.
-    pose P e :=
+    pose (P e :=
       forall v,
       noload e →
       sem_pexpr gd s1 e = ok v →
-      sem_pexpr gd s2 e = ok v.
-    pose Q es :=
+      sem_pexpr gd s2 e = ok v).
+    pose (Q es :=
       forall vs,
       all noload es -> sem_pexprs gd s1 es = ok vs →
-      sem_pexprs gd s2 es = ok vs.
+      sem_pexprs gd s2 es = ok vs).
     apply: (pexpr_mut_ind (P:= P) (Q:= Q))=> {e v}; split; rewrite /P /Q /= ?hs // => {P Q}.
     + move=> e ihe es ihes vs /andP [] /ihe{ihe}ihe /ihes{ihes}ihes.
       by t_xrbindP => ? /ihe -> /= ? /ihes -> /= <-.
@@ -522,7 +514,7 @@ Context
   Qed.
 
   Let Pi s1 (i:instr) s2:=
-    forall (X:Sv.t) c', update_i is_reg_ptr fresh_id p X i = ok c' ->
+    forall (X:Sv.t) c', update_i fresh_id p X i = ok c' ->
      Sv.Subset (Sv.union (read_I i) (write_I i)) X ->
      forall vm1, evm s1 =[X] vm1 ->
      exists2 vm2, evm s2 =[X] vm2 & sem p' ev (with_vm s1 vm1) c' (with_vm s2 vm2).
@@ -531,14 +523,14 @@ Context
     forall ii, Pi s1 (MkI ii i) s2.
 
   Let Pc s1 (c:cmd) s2:=
-    forall (X:Sv.t) c', update_c (update_i is_reg_ptr fresh_id p X) c = ok c' ->
+    forall (X:Sv.t) c', update_c (update_i fresh_id p X) c = ok c' ->
      Sv.Subset (Sv.union (read_c c) (write_c c)) X ->
      forall vm1, evm s1 =[X] vm1 ->
      exists2 vm2, evm s2 =[X] vm2 & sem p' ev (with_vm s1 vm1) c' (with_vm s2 vm2).
 
   Let Pfor (i:var_i) vs s1 c s2 :=
     forall X c',
-    update_c (update_i is_reg_ptr fresh_id p X) c = ok c' ->
+    update_c (update_i fresh_id p X) c = ok c' ->
     Sv.Subset (Sv.add i (Sv.union (read_c c) (write_c c))) X ->
     forall vm1, evm s1 =[X] vm1 ->
     exists2 vm2, evm s2 =[X] vm2 & sem_for p' ev i vs (with_vm s1 vm1) c' (with_vm s2 vm2).
@@ -559,7 +551,7 @@ Context
     t_xrbindP => lc ci {}/hi hi cc hcc <- <-.
     rewrite read_c_cons write_c_cons => hsub vm1 hvm1.
     have [|vm2 hvm2 hs2]:= hi _ vm1 hvm1; first by SvD.fsetdec.
-    have /hc : update_c (update_i is_reg_ptr fresh_id p X) c = ok (flatten cc).
+    have /hc : update_c (update_i fresh_id p X) c = ok (flatten cc).
     + by rewrite /update_c hcc.
     move=> /(_ _ vm2 hvm2) [|vm3 hvm3 hs3]; first by SvD.fsetdec.
     by exists vm3 => //=; apply: sem_app hs2 hs3.
@@ -572,7 +564,7 @@ Context
   Proof.
     move=> s1 s2 x t ty e v v' he htr hw ii X c' [<-].
     rewrite read_Ii /write_I /write_I_rec vrv_recE read_i_assgn => hsub vm1 hvm1.
-    move: he; rewrite (read_e_eq_on _ (s := Sv.empty) (vm' := vm1)); last first.
+    move: he; rewrite (read_e_eq_on_empty _ (vm := vm1)); last first.
     + by apply: eq_onI hvm1; rewrite read_eE; SvD.fsetdec.
     rewrite eq_globs => he; case: (write_lval_eq_on _ hw hvm1).
     + by SvD.fsetdec.
@@ -591,7 +583,7 @@ Context
     move=> vm2 [eq_s2_vm2 H_write_lvals]; exists vm2.
     + by apply: (eq_onI _ eq_s2_vm2); SvD.fsetdec.
     apply/sem_seq1/EmkI; constructor.
-    rewrite /sem_sopn Let_Let - (@read_es_eq_on _ _ _ _ _ X) ; last first.
+    rewrite /sem_sopn Let_Let -(read_es_eq_on _ (s := X)); last first.
     + by rewrite read_esE; apply: (eq_onI _ hvm1); SvD.fsetdec.
     by rewrite Hsem_pexprs /= Hexec_sopn.
   Qed.
@@ -609,7 +601,7 @@ Context
     move=> vm2 eq_s2_vm2 sem_i_then; exists vm2 => //.
     apply/sem_seq1/EmkI; apply: Eif_true => //.
     rewrite - eq_globs -He.
-    rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) // -/(read_e _).
+    rewrite -read_e_eq_on_empty // -/(read_e _).
     by apply: (eq_onI _ eq_s1_vm1); SvD.fsetdec.
   Qed.
 
@@ -623,7 +615,7 @@ Context
     move=> vm2 eq_s2_vm2 sem_i_else; exists vm2 => //.
     apply/sem_seq1/EmkI; apply: Eif_false => //.
     rewrite - eq_globs -He.
-    rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) // -/(read_e _).
+    rewrite -read_e_eq_on_empty // -/(read_e _).
     by apply: (eq_onI _ eq_s1_vm1); SvD.fsetdec.
   Qed.
 
@@ -645,7 +637,7 @@ Context
     move=> vm4 eq_s4_vm4 sem_vm3_vm4; exists vm4 => //.
     apply/sem_seq1/EmkI; apply: (Ewhile_true sem_vm1_vm2 _ sem_vm2_vm3).
     + rewrite -(make_referenceprog_globs Hp) -sem_s2_e.
-      rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) // -/(read_e _).
+      rewrite -read_e_eq_on_empty // -/(read_e _).
       by apply: (eq_onI _ eq_s2_vm2); SvD.fsetdec.
     by elim/sem_seq1I: sem_vm3_vm4 => /sem_IE.
   Qed.
@@ -662,7 +654,7 @@ Context
    apply/sem_seq1/EmkI.
    apply Ewhile_false => //.
    rewrite -(make_referenceprog_globs Hp) - eq_s_e.
-   rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) // -/(read_e _).
+   rewrite -read_e_eq_on_empty // -/(read_e _).
    by apply: (eq_onI _ eq_s2_vm2) ; SvD.fsetdec.
   Qed.
 
@@ -697,35 +689,15 @@ Context
     move=> vm2 eq_s2_vm2 sem_vm1_vm2; exists vm2 => //.
     apply/sem_seq1/EmkI/(Efor (vlo := vlo) (vhi := vhi)) => //.
     + rewrite -(make_referenceprog_globs Hp) -cpl_lo.
-      rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) // -/(read_e _).
+      rewrite -read_e_eq_on_empty // -/(read_e _).
       by apply: (eq_onI _ eq_s1_vm1); SvD.fsetdec.
     rewrite - eq_globs -cpl_hi.
-    rewrite -(@read_e_eq_on _ _ _ _ Sv.empty) // -/(read_e _).
+    rewrite -read_e_eq_on_empty // -/(read_e _).
     by apply: (eq_onI _ eq_s1_vm1); SvD.fsetdec.
   Qed.
 
-  Lemma get_set_var vm vm' x v v':
-    ~is_sbool (vtype x) ->
-    truncate_val (vtype x) v = ok v' ->
-    set_var vm x v' = ok vm' ->
-    get_var vm' x = ok v'.
-  Proof.
-    rewrite /get_var /set_var => hty htr; apply on_vuP; last by case: is_sbool hty.
-    move=> vt hvt <-.
-    rewrite /on_vu Fv.setP_eq.
-    case: (vtype x) vt htr hvt => /=.
-    + by move=> b _ /to_boolI ->.
-    + by move=> i _ /to_intI ->.
-    + move=> n t; case: v => //= n' t'.
-      by rewrite /truncate_val /=; t_xrbindP => t1 hc <-; rewrite /to_arr WArray.castK => -[->].
-    move => w vt; rewrite /truncate_val /=; t_xrbindP => w' h <-.
-    rewrite /to_pword.
-    assert (h1 := cmp_le_refl w); case: Sumbool.sumbool_of_bool; last by rewrite h1.
-    by move=> h2 [<-] /=.
-  Qed.
-
-  Lemma is_reg_ptr_expr_ty b x ty lv y:
-     is_reg_ptr_expr is_reg_ptr fresh_id b x ty lv = Some y -> vtype y = ty.
+  Lemma is_reg_ptr_expr_ty ii ctr b x ty lv y:
+     is_reg_ptr_expr fresh_id ii ctr b x ty lv = Some y -> vtype y = ty.
   Proof. by case: lv => //= [? | _ _ _ ? _ [<-] //]; case: ifP => // _ [<-]. Qed.
 
   (* FIXME: move this *)
@@ -740,17 +712,15 @@ Context
     exists2 x, pof_val (type_of_val v) v = ok x & pto_val x = v.
   Proof.
   case: v => //=; eauto.
-  + move=> n a _;rewrite /WArray.cast.
-    exists a => //; case: ifP => /ZleP; last by Psatz.lia.
-    by move=> _; f_equal;case: a.
+  + by move=> n a _; rewrite WArray.castK /=; exists a.
   move => sz w _; rewrite (sumbool_of_boolET (cmp_le_refl sz)).
   eexists; split; eauto.
   Qed.
   (* End FIXME: move this *)
 
   Lemma make_prologueP X ii s:
-     forall xfty args Y pl args',
-       make_prologue is_reg_ptr fresh_id ii Y xfty args = ok (pl, args') ->
+     forall xfty ctr args Y pl args',
+       make_prologue fresh_id ii Y ctr xfty args = ok (pl, args') ->
        Sv.Subset X Y ->
        Sv.Subset (read_es args) X ->
      forall vargs vs vm1,
@@ -764,15 +734,15 @@ Context
       vm1 =[Y] vm2].
   Proof.
     elim.
-    + move=> [] //= Y _ _ [<- <-] _ _ _ _ vm1 [<-] [<-] _.
+    + move=> ctr [] //= Y _ _ [<- <-] _ _ _ _ vm1 [<-] [<-] _.
       exists vm1, [::]; split => //; constructor.
-    move=> [[b x] ty] xfty ih [] //= a args Y _pl _args'; rewrite read_es_cons.
+    move=> [[b x] ty] xfty ih ctr [] //= a args Y _pl _args'; rewrite read_es_cons.
     move=> hisr hXY hX _vargs _vs vm1; t_xrbindP => va hva vargs hvargs <- {_vargs}.
     t_xrbindP => v hv vs hvs <- {_vs} heqvm.
     have [haX hasX]: Sv.Subset (read_e a) X /\ Sv.Subset (read_es args) X by split; SvD.fsetdec.
     case E: is_reg_ptr_expr hisr => [y | ]; t_xrbindP; last first.
     + move=> [c args'] hmk [<- <-] {_pl _args'}.
-      have [vm2 [vargs' [h1 h2 h3 h4]]]:= ih _ _ _ _ hmk hXY hasX _ _ vm1 hvargs hvs heqvm.
+      have [vm2 [vargs' [h1 h2 h3 h4]]]:= ih _ _ _ _ _ hmk hXY hasX _ _ vm1 hvargs hvs heqvm.
       exists vm2, [:: va & vargs']; split => //=; last by rewrite hv h3.
       rewrite -(eq_on_sem_pexpr _ (s:= s)) //=; last first.
       + by apply (eq_onT (vm2:= vm1));[apply: eq_onI heqvm => //| apply: eq_onI h4; SvD.fsetdec ].
@@ -785,7 +755,7 @@ Context
     have hset : set_var vm1 y v = ok vm1'.
     + rewrite /vm1'; have hty:= sym_eq (truncate_val_has_type hv); have := set_well_typed_var vm1 hty.
       by case: (v) v_def.
-    have [|| vm2 [vargs' [h1 h2 h3 h4]]]:= ih _ _ _ _ hmk _ hasX _ _ vm1' hvargs hvs.
+    have [|| vm2 [vargs' [h1 h2 h3 h4]]]:= ih _ _ _ _ _ hmk _ hasX _ _ vm1' hvargs hvs.
     + by SvD.fsetdec.
     + by apply: (eq_onT heqvm)=> z hz; rewrite /vm1' Fv.setP_neq //; apply/eqP => h;apply hnin; SvD.fsetdec.
     exists vm2, [::v & vargs']; split => //; first last.
@@ -802,7 +772,7 @@ Context
   Qed.
 
   Lemma make_epilogueP X ii s1 s2 xfty lv lv' ep vres vs vm1 :
-    make_epilogue is_reg_ptr fresh_id ii X xfty lv = ok (lv', ep) ->
+    make_epilogue fresh_id ii X xfty lv = ok (lv', ep) ->
     Sv.Subset (Sv.union (read_rvs lv) (vrvs lv)) X ->
     write_lvals (p_globs p) s1 lv vs = ok s2 ->
     mapM2 ErrType truncate_val (map snd xfty) vres = ok vs ->
@@ -827,10 +797,10 @@ Context
     rewrite !(read_i_call, write_i_call) => le_X vm1 eq_s1_vm1.
     case: (sem_callE h1) hupd => fnd [fnE] [vs] [s1'] [s2'] [s3'] [vres] [vsE] [_ hwrinit] _ [hgetout aoutE] _.
     rewrite /= /get_sig fnE.
-    have heqin : map snd (map2 (mk_info is_reg_ptr) (f_params fnd) (f_tyin fnd)) = f_tyin fnd.
+    have heqin : map snd (map2 mk_info (f_params fnd) (f_tyin fnd)) = f_tyin fnd.
     + have [_ h] := size_mapM2 vsE; rewrite -(size_fold2 hwrinit) in h.
       by rewrite map2E -map_comp -{2}(unzip2_zip (eq_leq h)); apply map_ext.
-    have heqout : map snd (map2 (mk_info is_reg_ptr) (f_res fnd) (f_tyout fnd)) = f_tyout fnd.
+    have heqout : map snd (map2 mk_info (f_res fnd) (f_tyout fnd)) = f_tyout fnd.
     + have [h _] := size_mapM2 aoutE; rewrite -(size_mapM hgetout) in h.
       by rewrite map2E -map_comp -{2}(unzip2_zip (eq_leq h)); apply map_ext.
     move=> {s1' s2' s3' hwrinit hgetout}.
@@ -873,7 +843,7 @@ Context
     have [||x Hevms2 Hsem] := (Hs2 _ _ Hupdate_c _ (evm s1)) => //; first by SvD.fsetdec.
     rewrite with_vm_same in Hsem.
     eapply EcallRun ; try by eassumption.
-    rewrite - Hvres -! (@sem_pexprs_get_var _ _ _ (p_globs p)).
+    rewrite -Hvres -!(sem_pexprs_get_var (p_globs p)).
     symmetry; move : Hevms2; rewrite -read_esE; apply : read_es_eq_on.
   Qed.
 
@@ -923,9 +893,26 @@ Context
     sem_call p' ev scs mem f va scs' mem' vr.
   Proof.
     move=> Hsem; case: (sem_callE Hsem) => fd [hget _].
-    by apply (@sem_call_Ind _ _ _ _ _ _ p ev Pc Pi_r Pi Pfor Pfun Hskip Hcons HmkI Hassgn Hopn Hsyscall
-               Hif_true Hif_false Hwhile_true Hwhile_false Hfor Hfor_nil Hfor_cons Hcall Hproc
-               scs mem f va scs' mem' vr Hsem _ _ hget).
+    exact:
+      (sem_call_Ind
+         Hskip
+         Hcons
+         HmkI
+         Hassgn
+         Hopn
+         Hsyscall
+         Hif_true
+         Hif_false
+         Hwhile_true
+         Hwhile_false
+         Hfor
+         Hfor_nil
+         Hfor_cons
+         Hcall
+         Hproc
+         Hsem
+         _ _
+         hget).
   Qed.
 
 End WITH_PARAMS.

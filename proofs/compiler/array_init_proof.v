@@ -15,7 +15,9 @@ Section WITH_PARAMS.
 
 Context
   {asm_op syscall_state : Type}
-  {spp : SemPexprParams asm_op syscall_state}.
+  {ep : EstateParams syscall_state}
+  {spp : SemPexprParams}
+  {sip : SemInstrParams asm_op syscall_state}.
 
 Section Section.
 
@@ -114,7 +116,7 @@ Section REMOVE_INIT.
         case: ({| vtype := sarr p0; vname := xn |} =P z) => [<- _ | /eqP neq].
         + rewrite Fv.setP_eq; have := Wf1 {| vtype := sarr p0; vname := xn |}.
           case: (vm1.[_]) => //= [ | [] //].
-          move=> a _;split;first by apply Z.le_refl.
+          move=> a _;split => //.
           move=> ??; rewrite (WArray.get_empty); case: ifP => //.
         by rewrite Fv.setP_neq.
       by rewrite /of_val;case:xt => //= ? ?; case: wsize_eq_dec => // ?; case: CEDecStype.pos_dec.
@@ -133,7 +135,7 @@ Section REMOVE_INIT.
     case: vm1.[x] => [a2 | //] [ _ hu] heq _.
     have ?:= Varr_inj1 (ok_inj heq); subst a1 => {heq}.
     rewrite WArray.castK.
-    split; first by apply Z.le_refl.
+    split => //.
     move=> k w; rewrite (WArray.set_sub_get8 ht1) /=; case: ifP => ?.
     + by rewrite WArray.get_empty; case: ifP.
     by apply hu.
@@ -245,9 +247,27 @@ Section REMOVE_INIT.
     sem_call p ev scs mem f va scs' mem' vr ->
     exists vr', sem_call p' ev scs mem f va' scs' mem' vr' /\ List.Forall2 value_uincl vr vr'.
   Proof.
-    move=> /(@sem_call_Ind _ _ _ _ _ _ p ev Pc Pi_r Pi Pfor Pfun Rnil Rcons RmkI Rasgn Ropn Rsyscall
-             Rif_true Rif_false Rwhile_true Rwhile_false Rfor Rfor_nil Rfor_cons Rcall Rproc) H.
-    by move=> /H.
+    move=> hall hsem.
+    exact:
+      (sem_call_Ind
+         Rnil
+         Rcons
+         RmkI
+         Rasgn
+         Ropn
+         Rsyscall
+         Rif_true
+         Rif_false
+         Rwhile_true
+         Rwhile_false
+         Rfor
+         Rfor_nil
+         Rfor_cons
+         Rcall
+         Rproc
+         hsem
+         _
+         hall).
   Qed.
 
 End REMOVE_INIT.
@@ -270,11 +290,11 @@ Proof. apply remove_init_fdP; apply wf_inits. Qed.
 
 Section ADD_INIT.
 
-  Context (is_ptr : var -> bool) (p : uprog) (ev:unit).
+  Context (p : uprog) (ev:unit).
 
   Notation gd := (p_globs p).
 
-  Notation p' := (add_init_prog is_ptr p).
+  Notation p' := (add_init_prog p).
 
   Definition undef_except (X:Sv.t) (vm:vmap) := 
    forall x, ~Sv.In x X ->  vm.[x] = pundef_addr (vtype x).
@@ -283,10 +303,10 @@ Section ADD_INIT.
     (forall vm1, evm s1 =v vm1 -> 
        exists2 vm2, evm s2 =v vm2 & sem_I p' ev (with_vm s1 vm1) i (with_vm s2 vm2)) /\
     forall I, undef_except I (evm s1) ->
-      undef_except (add_init_i is_ptr I i).2 (evm s2) /\
+      undef_except (add_init_i I i).2 (evm s2) /\
       forall vm1, evm s1 =v vm1 -> 
         exists2 vm2, evm s2 =v vm2 &
-          sem p' ev (with_vm s1 vm1) (add_init_i is_ptr I i).1 (with_vm s2 vm2).
+          sem p' ev (with_vm s1 vm1) (add_init_i I i).1 (with_vm s2 vm2).
 
   Let Pi_r s1 (i:instr_r) s2 := forall ii, Pi s1 (MkI ii i) s2.
 
@@ -294,10 +314,10 @@ Section ADD_INIT.
     (forall vm1, evm s1 =v vm1 -> 
          exists2 vm2, evm s2 =v vm2 & sem p' ev (with_vm s1 vm1) c (with_vm s2 vm2)) /\
     forall I, undef_except I (evm s1) ->
-      undef_except (add_init_c (add_init_i is_ptr) I c).2 (evm s2) /\
+      undef_except (add_init_c add_init_i I c).2 (evm s2) /\
       forall vm1, evm s1 =v vm1 -> 
         exists2 vm2, evm s2 =v vm2 &
-         sem p' ev (with_vm s1 vm1) (add_init_c (add_init_i is_ptr) I c).1 (with_vm s2 vm2).
+         sem p' ev (with_vm s1 vm1) (add_init_c add_init_i I c).1 (with_vm s2 vm2).
 
   Let Pfor (i:var_i) vs s1 c s2 :=
     forall vm1, evm s1 =v vm1 -> 
@@ -329,7 +349,7 @@ Section ADD_INIT.
     (∀ vm1 : vmap, evm s1 =v vm1 → exists2 vm2 : vmap, evm s2 =v vm2 & sem_I p' ev (with_vm s1 vm1) (MkI ii i) (with_vm s2 vm2)) →
     ∀ vm1 : vmap, evm s1 =v vm1 → 
     exists2 vm2 : vmap,
-        evm s2 =v vm2 & sem p' ev (with_vm s1 vm1) (add_init is_ptr ii I X (MkI ii i)) (with_vm s2 vm2).
+        evm s2 =v vm2 & sem p' ev (with_vm s1 vm1) (add_init ii I X (MkI ii i)) (with_vm s2 vm2).
   Proof.
     move=> hu hs; rewrite /add_init Sv.fold_spec.
     have : forall x:var, x \in Sv.elements (Sv.diff X I) -> (evm s1).[x] = pundef_addr (vtype x).
@@ -369,7 +389,7 @@ Section ADD_INIT.
         exists2 vm2 : vmap,
           evm s2 =v vm2 &
           sem p' ev (with_vm s1 vm1)
-            (add_init is_ptr ii I (Sv.union (write_i i) (read_i i)) (MkI ii i)) (with_vm s2 vm2).
+            (add_init ii I (Sv.union (write_i i) (read_i i)) (MkI ii i)) (with_vm s2 vm2).
   Proof.
     move=> hs hs'; split => //.
     move=> I hu; split.
@@ -380,12 +400,12 @@ Section ADD_INIT.
   Lemma sem_pexpr_ext_eq s e vm : 
     evm s =v vm ->
     sem_pexpr gd s e = sem_pexpr gd (with_vm s vm) e.
-  Proof. by move=> heq; apply (@read_e_eq_on _ _ _ _ Sv.empty). Qed.
+  Proof. move=> heq. by apply: read_e_eq_on_empty. Qed.
 
   Lemma sem_pexprs_ext_eq s es vm : 
     evm s =v vm ->
     sem_pexprs gd s es = sem_pexprs gd (with_vm s vm) es.
-  Proof. by move=> heq; apply (@read_es_eq_on _ _ _ _ _ Sv.empty). Qed.
+  Proof. move=> heq. by apply: read_es_eq_on_empty. Qed.
 
   Lemma write_lvar_ext_eq x v s1 s2 vm1 :
     evm s1 =v vm1 ->
@@ -541,7 +561,7 @@ Section ADD_INIT.
   Local Lemma RAproc : sem_Ind_proc p ev Pc Pfun.
   Proof.
     move=> scs1 m1 scs2 m2 fn fd vargs vargs' s0 s1 s2 vres vres' Hget Htin Hi Hargs Hsem [] hsi Hrec Hmap Htout Hsys Hfi.
-    have hget : get_fundef (p_funcs p') fn = Some (add_init_fd is_ptr fd).
+    have hget : get_fundef (p_funcs p') fn = Some (add_init_fd fd).
     + by rewrite /p' get_map_prog Hget.
     set I := vrvs [seq (Lvar i) | i <- f_params fd].
     case: (Hrec I).
@@ -551,7 +571,7 @@ Section ADD_INIT.
       + by rewrite -/I /disjoint /is_true Sv.is_empty_spec; SvD.fsetdec.
       by SvD.fsetdec.     
     move=> ?  /(_ (evm s1) (fun _ => erefl)) [vm2] heq2 hsem {Hsem Hget}.    
-    eapply (EcallRun (f := add_init_fd is_ptr fd) (s1:= with_vm s1 (evm s1)) (s2:= (with_vm s2 vm2))); eauto.
+    eapply (EcallRun (f := add_init_fd fd) (s1:= with_vm s1 (evm s1)) (s2:= (with_vm s2 vm2))); eauto.
     + by case: (s1) Hargs.
     by rewrite -Hmap; apply mapM_ext => // y; rewrite /get_var heq2.
   Qed.
@@ -560,8 +580,23 @@ Section ADD_INIT.
     sem_call p ev scs mem f va scs' mem' vr ->
     sem_call p' ev scs mem f va scs' mem' vr.
   Proof.
-    by apply (@sem_call_Ind _ _ _ _ _ _ p ev Pc Pi_r Pi Pfor Pfun RAnil RAcons RAmkI RAasgn RAopn RAsyscall
-               RAif_true RAif_false RAwhile_true RAwhile_false RAfor RAfor_nil RAfor_cons RAcall RAproc).
+    exact:
+      (sem_call_Ind
+         RAnil
+         RAcons
+         RAmkI
+         RAasgn
+         RAopn
+         RAsyscall
+         RAif_true
+         RAif_false
+         RAwhile_true
+         RAwhile_false
+         RAfor
+         RAfor_nil
+         RAfor_cons
+         RAcall
+         RAproc).
   Qed.
 
 End ADD_INIT.

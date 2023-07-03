@@ -23,6 +23,7 @@ Require Import ZArith.
 Require Export clear_stack_strategy.
 Require Import
   expr
+  fexpr
   label
   linear
   sopn
@@ -79,11 +80,25 @@ Context
 
 Notation clear_stack_cmd := (cs_clear_stack_cmd csparams).
 
-Definition write_i_rec s (i:linstr_r) :=
+Definition var_of_lexpr (le : lexpr) : var_i :=
+  match le with
+  | Store _ x _ | LLvar x => x
+  end.
+
+Definition write_lexpr_rec (s : Sv.t) (le : lexpr) : Sv.t :=
+  Sv.add (var_of_lexpr le) s.
+
+Definition write_lexprs_rec (s : Sv.t) (les : seq lexpr) : Sv.t :=
+  foldl write_lexpr_rec s les.
+
+Definition write_lexpr := write_lexpr_rec Sv.empty.
+Definition write_lexprs := write_lexprs_rec Sv.empty.
+
+Definition write_i_rec (s : Sv.t) (i : linstr_r) : Sv.t :=
   match i with
-  | Lopn xs _ _ => vrvs_rec s xs
+  | Lopn xs _ _ => write_lexprs_rec s xs
   | Lsyscall _ => s
-  | Lcall _ => s
+  | Lcall _ _ => s
   | Lret => s
   | Lalign   => s
   | Llabel _ _ => s

@@ -1,7 +1,7 @@
 (* * Syntax of the linear language *)
 
 From mathcomp Require Import all_ssreflect all_algebra.
-Require Import expr label sopn.
+Require Import expr fexpr label sopn.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
@@ -15,16 +15,18 @@ Context `{asmop:asmOp}.
 (* Syntax                                                                      *)
 
 Variant linstr_r :=
-  | Lopn   : lvals -> sopn -> pexprs -> linstr_r
+  | Lopn   : lexprs -> sopn -> rexprs -> linstr_r
   | Lsyscall : syscall_t -> linstr_r
-  | Lcall    : remote_label -> linstr_r
+  | Lcall    : option var_i -> remote_label -> linstr_r 
+     (* Lcall ra lbl: 
+        if ra = Some r the return adress is stored in r else on top of the stack *)
   | Lret     : linstr_r
   | Lalign : linstr_r
   | Llabel : label_kind -> label -> linstr_r
   | Lgoto  : remote_label -> linstr_r
-  | Ligoto : pexpr -> linstr_r (* Absolute indirect jump *)
+  | Ligoto : rexpr -> linstr_r (* Absolute indirect jump *)
   | LstoreLabel : var -> label -> linstr_r
-  | Lcond  : pexpr -> label -> linstr_r
+  | Lcond  : fexpr -> label -> linstr_r
 .
 
 Record linstr : Type := MkLI { li_ii : instr_info; li_i : linstr_r }.

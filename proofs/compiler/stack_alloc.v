@@ -1,8 +1,9 @@
 (* ** Imports and settings *)
 From mathcomp Require Import all_ssreflect all_algebra.
-From mathcomp.word Require Import ssrZ.
+From mathcomp Require Import word_ssrZ.
 Require Import strings word utils type var expr.
 Require Import compiler_util byteset.
+Require slh_lowering.
 Require Import ZArith.
 
 Set Implicit Arguments.
@@ -118,9 +119,7 @@ Scheme Equality for zone.
 
 Lemma zone_eq_axiom : Equality.axiom zone_beq.
 Proof.
-  move=> x y;apply:(iffP idP).
-  + by apply: internal_zone_dec_bl.
-  by apply: internal_zone_dec_lb.
+  exact: (eq_axiom_of_scheme internal_zone_dec_bl internal_zone_dec_lb).
 Qed.
 
 Definition zone_eqMixin := Equality.Mixin zone_eq_axiom.
@@ -403,9 +402,14 @@ End Region.
 
 Import Region.
 
-Section ASM_OP.
-Context {pd: PointerData}.
-Context `{asmop:asmOp}.
+Section WITH_PARAMS.
+
+Context
+  {asm_op : Type}
+  {pd : PointerData}
+  {msfsz : MSFsize}
+  {asmop : asmOp asm_op}
+.
 
 Definition mul := Papp2 (Omul (Op_w Uptr)).
 Definition add := Papp2 (Oadd (Op_w Uptr)).
@@ -444,7 +448,7 @@ Definition assert_check E b (e:E) :=
   if check then assert b e
   else ok tt.
 
-Inductive vptr_kind :=
+Variant vptr_kind :=
   | VKglob of Z * wsize
   | VKptr  of ptr_kind.
 
@@ -461,9 +465,22 @@ Record stack_alloc_params :=
       -> pexpr        (* Variable with base address. *)
       -> Z            (* Offset. *)
       -> option instr_r;
+    (* Build an instruction that assigns an immediate value *)
+    sap_immediate : var_i -> Z -> instr_r;
   }.
 
+Variant mov_kind :=
+  | MK_LEA
+  | MK_MOV.
+
+Definition mk_mov vpk :=
+  match vpk with
+  | VKglob _ | VKptr (Pdirect _ _ _ _ Sglob) => MK_LEA
+  | _ => MK_MOV
+  end.
+
 Context
+  (shparams : slh_lowering.sh_params)
   (saparams : stack_alloc_params).
 
 Section Section.
@@ -686,7 +703,7 @@ Definition alloc_lval (rmap: region_map) (r:lval) (ty:stype) :=
     ok (rmap, Lmem ws x e1)
   end.
 
-Definition nop := Copn [::] AT_none Onop [::]. 
+Definition nop := Copn [::] AT_none sopn_nop [::].
 
 (* [is_spilling] is used for stack pointers. *)
 Definition is_nop is_spilling rmap (x:var) (sry:sub_region) : bool :=
@@ -830,6 +847,64 @@ Definition alloc_array_move rmap r tag e :=
     end
   end.
 
+Definition is_protect_ptr_fail (rs:lvals) (o:sopn) (es:pexprs) :=
+  match o, rs, es with
+  | Oslh (SLHprotect_ptr_fail _), [::r], [:: e; msf] => Some (r, e, msf)
+  | _, _, _ => None
+  end.
+
+Definition lower_protect_ptr_fail ii lvs t es :=
+  slh_lowering.lower_slho shparams ii lvs t (SLHprotect Uptr) es.
+
+(* This seems to be a duplication of alloc_array_move, but we are able to share the corresponding proofs *)
+Definition alloc_protect_ptr rmap ii r t e msf :=
+  Let xsub := get_Lvar_sub r in
+  Let ysub := get_Pvar_sub e in
+  let '(x,subx) := xsub in
+  let '(y,suby) := ysub in
+
+   Let sryl :=
+    let vy := y.(gv) in
+    Let vk := get_var_kind y in
+    let ofs := 0%Z in
+    Let len :=
+      match suby with
+      | None => ok (size_slot vy)
+      | Some _ => Error (stk_error_no_var "argument of protect_ptr cannot be a sub array" )
+      end in
+    match vk with
+    | None => Error (stk_error_no_var "argument of protect_ptr should be a reg ptr")
+    | Some vpk =>
+      Let _ := assert (if vpk is VKptr (Pregptr _) then true else false)
+                      (stk_error_no_var "argument of protect_ptr should be a reg ptr") in
+      Let _ := assert (if r is Lvar _ then true else false)
+                      (stk_error_no_var "destination of protect_ptr should be a reg ptr") in
+      Let srs := check_vpk rmap vy vpk (Some ofs) len in
+      let sry := srs.2 in
+      Let: (e, _ofs) := mk_addr_pexpr rmap vy vpk in (* ofs is ensured to be 0 *)
+      ok (sry, vpk, e)
+    end
+  in
+  let '(sry, vpk, ey) := sryl in
+  match subx with
+  | None =>
+    match get_local (v_var x) with
+    | None    => Error (stk_error_no_var "only reg ptr can receive the result of protect_ptr")
+    | Some pk =>
+      match pk with
+      | Pregptr px =>
+        let dx := Lvar (with_var x px) in
+        Let msf := add_iinfo ii (alloc_e rmap msf) in
+        Let ir := lower_protect_ptr_fail ii [::dx] t [:: ey; msf] in
+        let rmap := Region.set_move rmap x sry in
+        ok (rmap, ir)
+      | _ => Error (stk_error_no_var "only reg ptr can receive the result of protect_ptr")
+      end
+    end
+  | Some _ => Error (stk_error_no_var "cannot assign protect_ptr in a sub array" )
+  end.
+
+
 (* This function is also defined in array_init.v *)
 (* TODO: clean *)
 Definition is_array_init e := 
@@ -894,6 +969,7 @@ End LOOP.
 Record stk_alloc_oracle_t :=
   { sao_align : wsize 
   ; sao_size: Z
+  ; sao_ioff: Z
   ; sao_extra_size: Z
   ; sao_max_size_used : Z
   ; sao_max_call_depth : Z
@@ -1017,12 +1093,6 @@ Definition check_lval_reg_call (r:lval) :=
   | Lmem ws x e1     => Error (stk_ierror_basic x "call result should be stored in reg")
   end.
 
-Definition check_is_Lvar r (x:var) :=
-  match r with
-  | Lvar x' => x == x' 
-  | _       => false 
-  end.
-
 Definition get_regptr (x:var_i) := 
   match get_local x with
   | Some (Pregptr p) => ok (with_var x p)
@@ -1108,7 +1178,7 @@ Definition alloc_syscall ii rmap rs o es :=
       Let sr := get_sub_region rmap xe in
       Let rmap := set_sub_region rmap x sr (Some 0%Z) (Zpos len) in
       ok (rmap,
-          [:: MkI ii (Cassgn (Lvar xlen) AT_none (sword Uptr) (cast_const (Zpos len)));
+          [:: MkI ii (sap_immediate saparams xlen (Zpos len));
               MkI ii (Csyscall [::Lvar xp] o [:: Plvar p; Plvar xlen])])
     | _, _ =>
       Error (stk_ierror_no_var "randombytes: invalid args or result")
@@ -1129,6 +1199,10 @@ Fixpoint alloc_i sao (rmap:region_map) (i: instr) : cexec (region_map * cmd) :=
         ok (r.1, [:: MkI ii (Cassgn r.2 t ty e)])
 
     | Copn rs t o e => 
+      if is_protect_ptr_fail rs o e is Some (r, e, msf) then
+         Let rs := alloc_protect_ptr rmap ii r t e msf in
+         ok (rs.1, [:: MkI ii rs.2])
+      else
       Let e  := add_iinfo ii (alloc_es rmap e) in
       Let rs := add_iinfo ii (alloc_lvals rmap rs (sopn_tout o)) in
       ok (rs.1, [:: MkI ii (Copn rs.2 t o e)])
@@ -1161,7 +1235,6 @@ Fixpoint alloc_i sao (rmap:region_map) (i: instr) : cexec (region_map * cmd) :=
 
     end.
 
-
 End PROG.
 
 End Section.
@@ -1183,7 +1256,8 @@ Definition init_stack_layout (mglob : Mvar.t (Z * wsize)) sao :=
           else Error (stk_ierror_no_var "bad stack region alignment")
         else Error (stk_ierror_no_var "bad stack alignment")
       else Error (stk_ierror_no_var "stack region overlap") in
-  Let sp := foldM add (Mvar.empty _, 0%Z) sao.(sao_slots) in
+  Let _ := assert (0 <=? sao.(sao_ioff))%Z (stk_ierror_no_var "negative initial stack offset") in
+  Let sp := foldM add (Mvar.empty _, sao.(sao_ioff)) sao.(sao_slots) in
   let '(stack, size) := sp in
   if (size <= sao.(sao_size))%CMP then ok stack
   else Error (stk_ierror_no_var "stack size").
@@ -1338,10 +1412,11 @@ Definition init_params mglob stack disj lmap rmap sao_params params :=
   fmapM2 (stk_ierror_no_var "invalid function info")
     (init_param mglob stack) (disj, lmap, rmap) sao_params params.
 
-Definition alloc_fd_aux p_extra mglob (fresh_reg : string -> stype -> string) (local_alloc: funname -> stk_alloc_oracle_t) sao fd : cexec _ufundef :=
+Definition alloc_fd_aux p_extra mglob (fresh_reg : Ident.name -> stype -> Ident.ident) (local_alloc: funname -> stk_alloc_oracle_t) sao fd : cexec _ufundef :=
   let vrip := {| vtype := sword Uptr; vname := p_extra.(sp_rip) |} in
   let vrsp := {| vtype := sword Uptr; vname := p_extra.(sp_rsp) |} in
-  let vxlen := {| vtype := sword Uptr; vname := fresh_reg "__len__"%string (sword Uptr) |} in
+  let vxlen := {| vtype := sword Uptr; vname := fresh_reg (Ident.name_of_string "__len__") (sword Uptr) |} in
+  let ra := sao.(sao_return_address) in
   Let stack := init_stack_layout mglob sao in
   Let mstk := init_local_map vrip vrsp vxlen mglob stack sao in
   let '(locals, rmap, disj) := mstk in
@@ -1385,12 +1460,13 @@ Definition alloc_fd_aux p_extra mglob (fresh_reg : string -> stype -> string) (l
     f_res := res;
     f_extra := f_extra fd |}.
 
-Definition alloc_fd p_extra mglob (fresh_reg : string -> stype -> string) (local_alloc: funname -> stk_alloc_oracle_t) fn fd :=
+Definition alloc_fd p_extra mglob (fresh_reg : Ident.name -> stype -> Ident.ident) (local_alloc: funname -> stk_alloc_oracle_t) fn fd :=
   let: sao := local_alloc fn in
   Let fd := alloc_fd_aux p_extra mglob fresh_reg local_alloc sao fd in
   let f_extra := {|
         sf_align  := sao.(sao_align);
         sf_stk_sz := sao.(sao_size);
+        sf_stk_ioff := sao.(sao_ioff);
         sf_stk_extra_sz := sao.(sao_extra_size);
         sf_stk_max_used := sao_max_size_used sao;
         sf_max_call_depth := sao.(sao_max_call_depth);
@@ -1400,63 +1476,97 @@ Definition alloc_fd p_extra mglob (fresh_reg : string -> stype -> string) (local
       |} in
   ok (swith_extra fd f_extra).
 
-Definition check_glob (m: Mvar.t (Z*wsize)) (data:seq u8) (gd:glob_decl) := 
-  let x := gd.1 in
-  match Mvar.get m x with
-  | None => false 
-  | Some (z, _) =>
-    let n := Z.to_nat z in
-    let data := drop n data in
-    match gd.2 with
-    | @Gword ws w =>
-      let s := Z.to_nat (wsize_size ws) in 
-      (s <= size data) &&
-      (LE.decode ws (take s data) == w)
-    | @Garr p t =>
-      let s := Z.to_nat p in
-      (s <= size data) &&
-      all (fun i => 
-             match read t (Z.of_nat i) U8 with
-             | Ok w => nth 0%R data i == w
-             | _    => false
-             end) (iota 0 s)
+Fixpoint ptake (A:Type) p (r l:list A) := 
+  match p, l with
+  | xH, x :: l => Some (x::r, l)
+  | xI p, x :: l => 
+    match ptake p (x::r) l with
+    | None => None
+    | Some (r, l) => ptake p r l
     end
+  | xO p, l => 
+    match ptake p r l with
+    | None => None
+    | Some (r, l) => ptake p r l
+    end
+  | _, [::] => None
   end.
 
-Definition check_globs (gd:glob_decls) (m:Mvar.t (Z*wsize)) (data:seq u8) := 
-  all (check_glob m data) gd.
+Definition ztake (A:Type) z (l:list A) := 
+  match z with
+  | Zpos p => 
+    match ptake p [::] l with
+    | None => None
+    | Some (r, l) => Some (rev r, l)
+    end
+  | Z0     => Some([::], l)
+  | _      => None
+  end.
 
-Definition init_map (sz:Z) (l:list (var * wsize * Z)) : cexec (Mvar.t (Z*wsize)) :=
-  let add (vp:var * wsize * Z) (globals:Mvar.t (Z*wsize) * Z) :=
+Definition check_glob data gv := 
+  match gv with
+  | @Gword ws w => assert (LE.decode ws data == w) (stk_ierror_no_var "bad decode")
+  | @Garr p t =>
+    Let _ := foldM (fun wd i => 
+             match read t i U8 with
+             | Ok w => 
+               if wd == w then ok (i+1)%Z 
+               else Error (stk_ierror_no_var "bad decode array eq")
+             | _ => Error (stk_ierror_no_var "bad decode array len")
+             end) 0%Z data in
+    ok tt  
+  end.
+
+Definition size_glob gv := 
+  match gv with
+  | @Gword ws _ => wsize_size ws
+  | @Garr p _ => Zpos p
+  end.
+
+Definition init_map (l:list (var * wsize * Z)) data (gd:glob_decls) : cexec (Mvar.t (Z*wsize)) :=
+  let add (vp:var * wsize * Z) (globals: Mvar.t (Z*wsize) * Z * seq u8) :=
     let '(v, ws, p) := vp in
-    if (globals.2 <=? p)%Z then
+    let '(mvar, pos, data) := globals in
+    if (pos <=? p)%Z then
       if Z.land p (wsize_size ws - 1) == 0%Z then
         let s := size_slot v in
-        ok (Mvar.set globals.1 v (p,ws), p + s)%Z
+        match ztake (p - pos) data with 
+        | None => Error (stk_ierror_no_var "bad data 1") 
+        | Some (_, data) =>  
+        match ztake s data with
+        | None =>  Error (stk_ierror_no_var "bad data 2")
+        | Some (vdata, data) => 
+          match assoc gd v with
+          | None => Error (stk_ierror_no_var "unknown var")  
+          | Some gv => 
+            Let _ := assert (s == size_glob gv) (stk_ierror_no_var "bad size") in 
+            Let _ := check_glob vdata gv in
+            ok (Mvar.set mvar v (p,ws), p + s, data)%Z
+          end
+        end end
       else Error (stk_ierror_no_var "bad global alignment")
     else Error (stk_ierror_no_var "global overlap") in
-  Let globals := foldM add (Mvar.empty (Z*wsize), 0%Z) l in
-  if (globals.2 <=? sz)%Z then ok globals.1
-  else Error (stk_ierror_no_var "global size").
+  Let globals := foldM add (Mvar.empty (Z*wsize), 0%Z, data) l in
+  let '(mvar, _, _) := globals in
+  Let _ := assert (Sv.subset (sv_of_list fst gd) (sv_of_list (fun x => x.1.1) l)) 
+                  (stk_ierror_no_var "missing globals") in
+  ok mvar.
 
-Definition alloc_prog (fresh_reg:string -> stype -> Ident.ident) 
+Definition alloc_prog (fresh_reg : Ident.name -> stype -> Ident.ident)
     rip rsp global_data global_alloc local_alloc (P:_uprog) : cexec _sprog :=
-  Let mglob := init_map (Z.of_nat (size global_data)) global_alloc in
+  Let mglob := init_map  global_alloc global_data P.(p_globs) in
   let p_extra :=  {|
     sp_rip   := rip;
     sp_rsp   := rsp;
     sp_globs := global_data;
   |} in
-  if rip == rsp then Error (stk_ierror_no_var "rip and rsp clash")
-  else if check_globs P.(p_globs) mglob global_data then
-    Let p_funs := map_cfprog_name (alloc_fd  p_extra mglob fresh_reg local_alloc) P.(p_funcs) in
-    ok  {| p_funcs  := p_funs;
-           p_globs := [::];
-           p_extra := p_extra;
-        |}
-  else 
-     Error (stk_ierror_no_var "invalid data").
+  Let _ := assert (rip != rsp) (stk_ierror_no_var "rip and rsp clash") in
+  Let p_funs := map_cfprog_name (alloc_fd  p_extra mglob fresh_reg local_alloc) P.(p_funcs) in
+  ok  {| p_funcs  := p_funs;
+         p_globs := [::];
+         p_extra := p_extra;
+      |}.
 
 End CHECK.
 
-End ASM_OP.
+End WITH_PARAMS.

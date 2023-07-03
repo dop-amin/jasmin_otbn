@@ -14,7 +14,9 @@ Section PROOF.
 
   Context
     {asm_op syscall_state : Type}
-    {spp : SemPexprParams asm_op syscall_state}
+    {ep : EstateParams syscall_state}
+    {spp : SemPexprParams}
+    {sip : SemInstrParams asm_op syscall_state}
     {T : eqType}
     {pT : progT T}
     {sCP : semCallParams}.
@@ -188,8 +190,23 @@ Section PROOF.
     sem_call p  ev scs mem f va scs' mem' vr ->
     sem_call p' ev scs mem f va scs' mem' vr.
   Proof.
-    apply (@sem_call_Ind _ _ _ _ _ _ p ev Pc Pi_r Pi Pfor Pfun Hskip Hcons HmkI Hassgn Hopn Hsyscall
-             Hif_true Hif_false Hwhile_true Hwhile_false Hfor Hfor_nil Hfor_cons Hcall Hproc).
+    exact:
+      (sem_call_Ind
+         Hskip
+         Hcons
+         HmkI
+         Hassgn
+         Hopn
+         Hsyscall
+         Hif_true
+         Hif_false
+         Hwhile_true
+         Hwhile_false
+         Hfor
+         Hfor_nil
+         Hfor_cons
+         Hcall
+         Hproc).
   Qed.
 
 End PROOF.
