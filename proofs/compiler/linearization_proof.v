@@ -263,11 +263,7 @@ Lemma valid_le_min min2 fn min1 max lc :
   valid fn min2 max lc ->
   valid fn min1 max lc.
 Proof.
-<<<<<<< HEAD
-  move => /Pos_leb_trans h; apply: sub_all; rewrite /valid_labels => -[_/=] [] // => [ [fn' lbl] | k lbl | [ fn' lbl ] | _ lbl | _ lbl ].
-=======
   move => /Pos_leb_trans h; apply: sub_all; rewrite /valid_labels => -[_/=] [] // => [ _ [fn' lbl] | k lbl | [ fn' lbl ] | _ lbl | _ lbl ].
->>>>>>> main
   1,3: case: ifP => // _.
   all: by case/andP => /h ->.
 Qed.
@@ -277,11 +273,7 @@ Lemma valid_le_max max1 fn max2 min lc :
   valid fn min max1 lc ->
   valid fn min max2 lc.
 Proof.
-<<<<<<< HEAD
-  move => /Pos_lt_leb_trans h; apply: sub_all; rewrite /valid_labels => -[_/=] [] // => [ [fn' lbl] | k lbl | [ fn' lbl ] | _ lbl | _ lbl ].
-=======
   move => /Pos_lt_leb_trans h; apply: sub_all; rewrite /valid_labels => -[_/=] [] // => [ _ [fn' lbl] | k lbl | [ fn' lbl ] | _ lbl | _ lbl ].
->>>>>>> main
   1,3: case: ifP => // _.
   all: by case/andP => -> /h.
 Qed.
@@ -1630,17 +1622,12 @@ Section PROOF.
       (λ m2 vm2,
       (if lret is Some ((caller, lbl), _cbody, pc)
       then lsem p' (Lstate (escs s1) m1 vm1 fn 1) (Lstate (escs s2) m2 vm2 caller pc.+1)
-<<<<<<< HEAD
       else lsem p' (Lstate (escs s1) m1 vm1 fn 0) (Lstate (escs s2) m2 vm2 fn (size body))) /\ target_mem_unchanged m1 m2)
-      (λ _ vm2, vm1 = vm2 [\ if ra is RAnone then Sv.diff k (sv_of_list id callee_saved) else Sv.union k (extra_free_registers_at extra_free_registers ii)])
-=======
-      else lsem p' (Lstate (escs s1) m1 vm1 fn 0) (Lstate (escs s2) m2 vm2 fn (size body)))
       (λ _ vm2, vm1 = vm2 [\ match ra with
                              | RAnone => Sv.diff k (sv_of_list id callee_saved)
                              | RAreg _ => k
                              | RAstack _ _ => Sv.add vrsp k
                              end ])
->>>>>>> main
       (λ _ vm2, wf_vm vm2)
       (λ _ vm2, s2.[vrsp <- ok (pword_of_word (if ra is RAstack _ _ then sp + wrepr _ (wsize_size Uptr)
                                                else sp))] <=[\ sv_of_list id callee_saved ] vm2)
@@ -1669,15 +1656,11 @@ Section PROOF.
     done.
   Qed.
 
-<<<<<<< HEAD
   Lemma RSP_in_magic :
     Sv.In vrsp (magic_variables p).
   Proof. by rewrite Sv.add_spec Sv.singleton_spec; right. Qed.
 
-  Local Lemma Hcons : sem_Ind_cons p extra_free_registers var_tmp Pc Pi.
-=======
   Local Lemma Hcons : sem_Ind_cons p var_tmp Pc Pi.
->>>>>>> main
   Proof.
     move => ki kc s1 s2 s3 i c exec_i hi _ hc.
     move => fn lbl /checked_cI[] chk_i chk_c /=.
@@ -1721,51 +1704,12 @@ Section PROOF.
 
   Local Lemma HmkI : sem_Ind_mkI p var_tmp Pi Pi_r.
   Proof.
-<<<<<<< HEAD
-    move => ii k i s1 s2 ok_fr hsem h hdisj fn lbl chk.
+    move => ii k i s1 s2 ok_fr h hdisj fn lbl chk.
     move: h => /(_ fn lbl chk); case: linear_i (valid_i fn (MkI ii i) lbl) => lbli li [L V] S.
-    move => m1 vm1 P Q W M X D C sp hsp SM MAX.
-    have E :
-      match extra_free_registers ii return Prop with
-      | Some fr =>
-          [/\ fr ≠ vgd, fr ≠ vrsp, vtype fr = spointer
-            & ((kill_extra_register extra_free_registers ii s1).[fr])%vmap = Error ErrAddrUndef]
-      | None => True
-      end.
-    + rewrite /kill_extra_register /kill_extra_register_vmap.
-      rewrite /efr_valid in ok_fr.
-      case: extra_free_registers ok_fr
-      => // fr /and3P [] /eqP hrip /eqP hrsp /andP[] /eqP hty not_while;
-        split => //=.
-      rewrite /=; case heq: s1.[fr]%vmap (W fr) (X fr) => [vfr | efr /=].
-      + by move=> _ _; rewrite Fv.setP_eq hty.
-      rewrite heq; case: vm1.[fr]%vmap.
-      + by move=> _ _; case efr.
-      by move=> [] // _; case: (efr).
-    have hsp': (kill_extra_register extra_free_registers ii s1).[vrsp]%vmap = ok (pword_of_word sp).
-    + rewrite /kill_extra_register /kill_extra_register_vmap.
-      rewrite /efr_valid in ok_fr.
-      case: extra_free_registers ok_fr hsp
-      => // fr /and3P [] /eqP hrip /eqP hrsp /andP[] /eqP hty not_while.
-      case heq: s1.[fr]%vmap => [vfr | efr /=] //.
-      rewrite Fv.setP_neq. done. apply /eqP. done.
-    have {S E} S := S E.
-    have [ | {W M X} ] := S _ vm1 _ _ W M _ D C hdisj sp hsp' SM MAX.
-    - by apply: vm_uincl_trans; first exact: kill_extra_register_vm_uincl.
-    move=> m2 vm2 [E U] K W X H M.
-=======
-    move => ii k i s1 s2 ok_fr h _ fn lbl chk.
-    move: h => /(_ fn lbl chk); case: linear_i (valid_i fn (MkI ii i) lbl) => lbli li [L V] S.
-    move => m1 vm1 P Q W M X D C.
-    have {W M X} [m2 vm2 E K W X H M] := S _ vm1 _ _ W M X D C.
->>>>>>> main
-    exists m2 vm2.
-    - split; [exact: E|exact: U].
-    - apply: vmap_eq_exceptI K; SvD.fsetdec.
-    - exact: W.
-    - exact: X.
-    - exact: preserved_metadataE H.
-    exact: M.
+    move=> m1 vm1 P Q W M X D C sp hsp SM MAX.
+    have {W M X} [m2 vm2 E K W X H M] :=
+      S _ vm1 _ _ W M X D C hdisj sp hsp SM MAX.
+    by exists m2 vm2.
   Qed.
 
   Lemma find_instrE fn body :
@@ -1800,50 +1744,6 @@ Section PROOF.
     by t_xrbindP => s vs z /(rexpr_of_pexprP ok_r) /= -> > /rec -> <-.
   Qed.
 
-<<<<<<< HEAD
-    move: chk.
-    rewrite /check_i.
-    case: ifP => // hchk _.
-
-    move => fr_undef m1 vm1 P Q W1 M1 X1 D1 C1 DISJ sp hsp S MAX.
-    have [ v' ok_v' ] := sem_pexpr_uincl X1 ok_v.
-    case/value_uinclE => [sz''] [w] [?]; subst v' => /andP[] hle' /eqP ?; subst w'.
-    have [ vm2 /(match_mem_write_lval M1) [ m2 ok_s2' M2 ] ok_vm2 ] := write_uincl X1 (value_uincl_refl _) ok_s2.
-    have heqrsp: (s2.[vrsp])%vmap = (s1.[vrsp])%vmap.
-    + rewrite -(disjoint_eq_on (disjoint_sym DISJ) ok_s2) //.
-      by apply RSP_in_magic.
-    exists m2 vm2; [ | | | exact: ok_vm2 | | exact: M2]; last first.
-    + exact: write_lval_preserves_metadata ok_s2 ok_s2' _ X1 M1.
-    + exact: wf_write_lval ok_s2'.
-    + apply: vmap_eq_exceptI; first exact: SvP.MP.union_subset_1.
-      by have := vrvP ok_s2'.
-    split; last first.
-    + move=> pr hnm0 hnstack.
-      apply (write_lval_mem_unchanged ok_s2 ok_s2' erefl X1 M1).
-      apply /negP => /S /orP [//|].
-      have /= h := MAX _ ok_fd.
-      move: hnstack.
-      have := checked_prog ok_fd.
-      rewrite /check_fd.
-      t_xrbindP=> _ _ h2 _ _ _.
-      case/and4P : h2 => _ _ _ /ZleP /= ?.
-      rewrite /pointer_range wunsigned_sub; last first.
-      + by have := wunsigned_range sp; lia.
-      by rewrite !zify; lia.
-    apply: LSem_step.
-    rewrite -(addn0 (size P)) /lsem1 /step /= (find_instr_skip C1) /=.
-    rewrite /of_estate size_cat addn1 addn0.
-    apply:
-      (spec_lassign
-         hliparams
-         _ _ _ _
-         hchk
-         (match_mem_sem_pexpr M1 ok_v')
-         _
-         ok_s2').
-    move: htw => /truncate_wordP [hle ->].
-    by rewrite (zero_extend_idem _ hle) /truncate_word (ifT _ _ (cmp_le_trans hle hle')).
-=======
   Lemma check_lexprsP ii xs u :
     allM (check_lexpr ii) xs = ok u →
     exists2 ds, oseq.omap lexpr_of_lval xs = Some ds &
@@ -1855,37 +1755,29 @@ Section PROOF.
     rewrite /allM /=; t_xrbindP => /check_lexprP[] d ok_d /ih{}[] ? -> rec.
     rewrite ok_d; eexists; first reflexivity.
     by move => s [] // v vs s'; t_xrbindP => ? /(lexpr_of_lvalP ok_d) /= -> /rec.
->>>>>>> main
   Qed.
 
   Local Lemma Hopn : sem_Ind_opn p Pi_r.
   Proof.
     move => ii s1 s2 tg op xs es; rewrite /sem_sopn; t_xrbindP => rs vs.
     rewrite p_globs_nil => ok_vs ok_rs ok_s2.
-<<<<<<< HEAD
-    move => fn lbl /checked_iE[] fd ok_fd chk.
-    move => fr_undef m1 vm1 P Q W1 M1 X1 D1 C1 DISJ sp hsp S MAX.
-    have [ vs' /(match_mem_sem_pexprs M1) ok_vs' vs_vs' ] := sem_pexprs_uincl X1 ok_vs.
-=======
     move => fn lbl /checked_iE[] fd ok_fd.
     rewrite /check_i; t_xrbindP => /check_rexprsP[] qs ok_qs chk_es /check_lexprsP[] ds ok_ds chk_xs.
     rewrite /= ok_ds ok_qs.
     move => m1 vm1 P Q W1 M1 X1 D1 C1.
     have [ vs' /(match_mem_sem_pexprs M1) /chk_es ok_vs' vs_vs' ] := sem_pexprs_uincl X1 ok_vs.
->>>>>>> main
     have [ rs' ok_rs' rs_rs' ] := vuincl_exec_opn vs_vs' ok_rs.
     have [ vm2 /(match_mem_write_lvals M1) [ m2 ok_s2' M2 ] ok_vm2 ] := writes_uincl X1 rs_rs' ok_s2.
     exists m2 vm2; [ | | | exact: ok_vm2 | | exact: M2 ]; last first.
     + exact: write_lvals_preserves_metadata ok_s2 ok_s2' _ X1 M1.
     + exact: wf_write_lvals ok_s2'.
-<<<<<<< HEAD
-    + apply: vmap_eq_exceptI; first exact: SvP.MP.union_subset_1.
-      by have := vrvsP ok_s2'.
+    + by have := vrvsP ok_s2'.
+
     split; last first.
     + move=> pr hnm0 hnstack.
       apply (write_lvals_mem_unchanged rs_rs' ok_s2 ok_s2' erefl X1 M1).
-      apply /negP => /S /orP [//|].
-      have /= h := MAX _ ok_fd.
+      apply /negP => /H1 /orP [//|].
+      have /= h := H2 _ ok_fd.
       move: hnstack.
       have := checked_prog ok_fd.
       rewrite /check_fd.
@@ -1894,9 +1786,7 @@ Section PROOF.
       rewrite /pointer_range wunsigned_sub; last first.
       + by have := wunsigned_range sp; lia.
       by rewrite !zify; lia.
-=======
-    + by have := vrvsP ok_s2'.
->>>>>>> main
+
     apply: LSem_step.
     rewrite -(addn0 (size P)) /lsem1 /step /= (find_instr_skip C1) /= /eval_instr /to_estate /=.
     have {} ok_s2' := chk_xs _ _ _ ok_s2'.
