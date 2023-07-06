@@ -177,24 +177,32 @@ let compile (type reg regx xreg rflag cond asm_op extra_op)
       try Hf.find ttbl fn with Not_found -> assert false
   in
 
-  (* TODO_SA: This seems overly complicated. *)
-  let clear_stack_info =
-    let h = Hf.create 17 in
+  let tbl_annot =
+    let tbl = Hf.create 17 in
+    let add (fn, cfd) =
+      let fd = fdef_of_cufdef fn cfd in
+      Hf.add tbl fn fd.f_annot
+    in
+    List.iter add cprog.Expr.p_funcs;
+    tbl
+  in
 
-    List.iter
-      (fun f ->
-        let clear_stack =
-          match f.f_annot.clear_stack with
-          | Some (css, Some ws) ->
-              let ws = Pretyping.tt_ws ws in
-              Some (css, Some ws)
-          | Some (css, None) -> Some (css, None)
-          | None -> None
-        in
-        Hf.add h f.f_name clear_stack)
-      (snd prog);
+  let get_annot fn =
+    try Hf.find tbl_annot fn
+    with Not_found ->
+           hierror
+             ~loc:Lnone
+             ~funname:fn.fn_name
+             ~kind:"compiler error"
+             ~internal:true
+             "invalid annotation table."
+  in
 
-    Hf.find h
+  let szs_of_fn fn =
+    match (get_annot fn).clear_stack with
+    | Some (s, Some ws) -> let ws = Pretyping.tt_ws ws in Some (s, Some ws)
+    | Some (s, None) -> Some (s, None)
+    | None -> None
   in
 
   let cparams =
@@ -233,7 +241,7 @@ let compile (type reg regx xreg rflag cond asm_op extra_op)
       Compiler.fresh_var_ident = Conv.fresh_var_ident;
       Compiler.is_reg_array;
       Compiler.slh_info;
-      Compiler.clear_stack_info;
+      Compiler.clear_stack_info = szs_of_fn;
     }
   in
 

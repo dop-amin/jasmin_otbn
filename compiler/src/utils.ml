@@ -76,6 +76,8 @@ let oget ?exn (x : 'a option) =
   | None  , Some exn -> raise exn
   | Some x, _        -> x
 
+let odefault o0 o1 = if Option.is_some o0 then o0 else o1
+
 (* -------------------------------------------------------------------- *)
 module Uniq = struct
   let gen () = Oo.id (object end)
@@ -432,3 +434,9 @@ let warning (w:warning) loc =
       Format.eprintf "@[<v>%a%t: %t@]@."
         pp_iloc loc
         pp_warning pp)
+
+(* -------------------------------------------------------------------------- *)
+
+let szero_strategies =
+  let open Clear_stack_strategy in
+  [ ("loop", CSSloop); ("unrolled", CSSunrolled) ]

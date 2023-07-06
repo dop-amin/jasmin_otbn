@@ -18,29 +18,19 @@ Unset Printing Implicit Defensive.
 
 
 Variant cs_strategy :=
-  | CSSloop
-  | CSSunrolled.
+| CSSloop
+| CSSunrolled.
 
-Definition cs_strategy_dec_eq (s0 s1: cs_strategy) : {s0 = s1} + {s0 <> s1}.
-  by repeat decide equality.
-Defined.
-
-Definition cs_strategy_beq (s0 s1: cs_strategy) : bool :=
-  if cs_strategy_dec_eq s0 s1 is left _
-  then true
-  else false.
+Scheme Equality for cs_strategy.
 
 Lemma cs_strategy_eq_axiom : Equality.axiom cs_strategy_beq.
 Proof.
-  move=> x y.
-  apply: (iffP idP);
-    last move=> <-;
-    rewrite /cs_strategy_beq;
-    by case: cs_strategy_dec_eq.
+  exact:
+    (eq_axiom_of_scheme
+       internal_cs_strategy_dec_bl
+       internal_cs_strategy_dec_lb).
 Qed.
 
-#[ global ]
-Instance eqTC_cs_strategy : eqTypeC cs_strategy :=
-  { ceqP := cs_strategy_eq_axiom }.
-
-Canonical cs_strategy_eqType := @ceqT_eqType _ eqTC_cs_strategy.
+Definition cs_strategy_eqMixin := Equality.Mixin cs_strategy_eq_axiom.
+Canonical cs_strategy_eqType :=
+  Eval hnf in EqType cs_strategy cs_strategy_eqMixin.

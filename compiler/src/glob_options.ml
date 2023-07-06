@@ -36,6 +36,12 @@ let introduce_array_copy = ref true
 let print_dependencies = ref false 
 let lazy_regalloc = ref false
 
+let szero_strategy = ref None
+let set_szero_strategy s =
+  szero_strategy := Some (List.assoc s szero_strategies)
+let szero_size = ref None
+let set_szero_size s = szero_size := Some (Annot.ws_of_string s)
+
 type architecture =
   | X86_64
   | ARM_M4
@@ -156,7 +162,7 @@ let print_strings = function
   | Compiler.RegAllocation               -> "ralloc"   , "register allocation"
   | Compiler.DeadCode_RegAllocation      -> "rallocd"  , "dead code after register allocation"
   | Compiler.Linearization               -> "linear"   , "linearization"
-  | Compiler.ClearStack                  -> "clearstack", "stack clearing"
+  | Compiler.ClearStack                  -> "stackzero", "stack zeroization"
   | Compiler.Tunneling                   -> "tunnel"   , "tunneling"
   | Compiler.Assembly                    -> "asm"      , "generation of assembly"
 
@@ -179,7 +185,18 @@ let stop_after_option p =
   let s, msg = print_strings p in
   ("-until_"^s, Arg.Unit (set_stop_after p), "stop after "^msg)
 
-let options = [
+let options =
+  let szero_strategy_args =
+    let opts = List.map fst szero_strategies in
+    Arg.Symbol (opts, set_szero_strategy)
+  in
+
+  let szero_size_args =
+    let opts = List.map fst Annot.ws_strings in
+    Arg.Symbol (opts, set_szero_size)
+  in
+
+  [
     "-version" , Arg.Set help_version  , "display version information about this compiler (and exits)";
     "-o"       , Arg.Set_string outfile, "[filename]: name of the output file";
     "-debug"   , Arg.Set debug         , ": print debug information";
@@ -229,6 +246,12 @@ let options = [
     "-ATT", Arg.Unit (set_syntax `ATT), "use AT&T syntax (default is AT&T)"; 
     "-call-conv", Arg.Symbol (["windows"; "linux"], set_cc), ": select calling convention (default depend on host architecture)";
     "-arch", Arg.Symbol (["x86-64"; "arm-m4"], set_target_arch), ": select target arch (default is x86-64)";
+    "-stack-zeroization",
+      szero_strategy_args,
+      ": override stack zeroization strategy for export functions";
+    "-stack-zeroization-size",
+      szero_size_args,
+      ": override stack zeroization size for export functions";
   ] @  List.map print_option Compiler.compiler_step_list @ List.map stop_after_option Compiler.compiler_step_list
 
 let usage_msg = "Usage : jasminc [option] filename"

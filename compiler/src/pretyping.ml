@@ -1814,28 +1814,28 @@ let process_f_annot loc funname f_cc annot =
     kind
   in
 
-  let mk_css =
-    Annot.filter_string_list
-      None
-      ["loop", Clear_stack_strategy.CSSloop;
-       "unrolled", Clear_stack_strategy.CSSunrolled]
-  in
-
-  let clear_stack_strategy =
-    let strategy = Annot.ensure_uniq1 "clearstack" mk_css annot in
-    if strategy <> None && f_cc <> Export then
-      hierror
-        ~loc:(Lone loc)
-        ~funname
-        ~kind:"unexpected annotation"
-        "clearstack only applies to export functions";
-    strategy
-  in
-  let clear_size = Annot.ensure_uniq1 "clearsize" (Annot.wsize None) annot in
   let clear_stack =
+
+    let clear_stack_strategy =
+      let mk_css = Annot.filter_string_list None szero_strategies in
+      let strategy = Annot.ensure_uniq1 "clearstack" mk_css annot in
+      if strategy <> None && f_cc <> Export then
+        hierror
+          ~loc:(Lone loc)
+          ~funname
+          ~kind:"unexpected annotation"
+          "clearstack only applies to export functions";
+      odefault !Glob_options.szero_strategy strategy
+    in
+
+    let clear_size =
+      let sz = Annot.ensure_uniq1 "clearsize" (Annot.wsize None) annot in
+      odefault !Glob_options.szero_size sz
+    in
+
     match clear_stack_strategy, clear_size with
     | None, None -> None
-    | None, _ ->
+    | None, Some _ ->
         hierror
           ~loc:(Lone loc)
           ~funname

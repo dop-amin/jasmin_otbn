@@ -51,6 +51,9 @@ val snd_map : ('b -> 'c) -> 'a * 'b -> 'a * 'c
 (* -------------------------------------------------------------------- *)
 val oget       : ?exn:exn -> 'a option -> 'a
 
+(* Return the first argument if it's [Some], and the second otherwise. *)
+val odefault : 'a option -> 'a option -> 'a option
+
 (* -------------------------------------------------------------------- *)
 module Uniq : sig
   val gen : unit -> int
@@ -183,3 +186,7 @@ val add_warning : warning -> unit -> unit
 val warning :
       warning -> Location.i_loc
    -> ('a, Format.formatter, unit) format -> 'a
+
+(* -------------------------------------------------------------------- *)
+
+val szero_strategies : (string * Clear_stack_strategy.cs_strategy) list

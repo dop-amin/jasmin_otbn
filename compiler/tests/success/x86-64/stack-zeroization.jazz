@@ -1,0 +1,48 @@
+inline
+fn f(reg u64 p) {
+    stack u64 s;
+    s = 1;
+    [p] = s;
+}
+
+#clearstack=loop
+export fn main0(reg u64 p) { f(p); }
+
+#clearstack=loop #clearsize=u8
+export fn main1(reg u64 p) { f(p); }
+
+#clearstack=loop #clearsize=u16
+export fn main2(reg u64 p) { f(p); }
+
+#clearstack=loop #clearsize=u32
+export fn main3(reg u64 p) { f(p); }
+
+#clearstack=loop #clearsize=u64
+export fn main4(reg u64 p) { f(p); }
+
+#clearstack=loop #clearsize=u128
+export fn main5(reg u64 p) { f(p); }
+
+#clearstack=loop #clearsize=u256
+export fn main6(reg u64 p) { f(p); }
+
+#clearstack=unrolled
+export fn main7(reg u64 p) { f(p); }
+
+#clearstack=unrolled #clearsize=u8
+export fn main8(reg u64 p) { f(p); }
+
+#clearstack=unrolled #clearsize=u16
+export fn main9(reg u64 p) { f(p); }
+
+#clearstack=unrolled #clearsize=u32
+export fn main10(reg u64 p) { f(p); }
+
+#clearstack=unrolled #clearsize=u64
+export fn main11(reg u64 p) { f(p); }
+
+#clearstack=unrolled #clearsize=u128
+export fn main12(reg u64 p) { f(p); }
+
+#clearstack=unrolled #clearsize=u256
+export fn main13(reg u64 p) { f(p); }
