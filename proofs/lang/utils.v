@@ -1889,3 +1889,49 @@ Qed.
 Lemma map_const_nseq A B (l : list A) (c : B) : map (fun=> c) l = nseq (size l) c.
 Proof. by elim: l => // > ? /=; f_equal. Qed.
 
+
+Section TRANSN.
+
+Context
+  {A : Type}
+  {R : A -> A -> Prop}
+  (htrans : forall x y z, R x y -> R y z -> R x z)
+.
+
+Fixpoint transn_spec_aux (a0 an : A) (l : list A) : Prop :=
+  match l with
+  | [::] => R a0 an
+  | an1::l => R an an1 -> transn_spec_aux a0 an1 l
+  end.
+
+Definition transn_spec (l : list A) : Prop :=
+  match l with
+  | [::] => True
+  | [:: a0 ] => R a0 a0 -> R a0 a0
+  | a0 :: a1 :: l => R a0 a1 -> transn_spec_aux a0 a1 l
+  end.
+
+Lemma transn_spec_auxP a0 an l :
+  R a0 an ->
+  transn_spec_aux a0 an l.
+Proof.
+  elim: l an => //= an1 l hrec an h0n hnn1.
+  apply: hrec.
+  exact: (htrans h0n hnn1).
+Qed.
+
+Lemma transn_specP l : transn_spec l.
+Proof. case: l => //= a0 [ // | a1 l]. exact: transn_spec_auxP. Qed.
+
+Context (hrefl : forall x, R x x).
+
+Definition transn_refl_spec (l : list A) : Prop :=
+  match l with
+  | [::] => True
+  | a0 :: l => transn_spec_aux a0 a0 l
+  end.
+
+Lemma transn_refl_specP l : transn_refl_spec l.
+Proof. case: l => //= a0 l. apply: transn_spec_auxP. exact: hrefl. Qed.
+
+End TRANSN.

@@ -1,11 +1,15 @@
+From Coq Require Import Relations.
 From mathcomp Require Import
   all_ssreflect
   all_algebra.
 
 Require Import
+  label
+  linear
+  linear_sem
+  one_varmap
   psem
-label one_varmap linear sem_one_varmap
-  linear_sem.
+  sem_one_varmap.
 
 Set Implicit Arguments.
 Unset Strict Implicit.
@@ -44,12 +48,15 @@ Lemma lfn_lset_estate ls scs m vm :
   lfn (lset_estate ls scs m vm) = lfn ls.
 Proof. done. Qed.
 
+Lemma lsem_transn lp l : transn_refl_spec (R := lsem lp) l.
+Proof. exact: (transn_refl_specP (rt_trans _ _) (rt_refl _ _)). Qed.
+
 Lemma lsem_trans3 lp ls0 ls1 ls2 ls3 :
   lsem lp ls0 ls1 ->
   lsem lp ls1 ls2 ->
   lsem lp ls2 ls3 ->
   lsem lp ls0 ls3.
-Proof. by repeat (move=> /lsem_trans /[apply]). Qed.
+Proof. exact: (lsem_transn _ [:: _; _; _; _ ]). Qed.
 
 Lemma lsem_trans4 lp ls0 ls1 ls2 ls3 ls4 :
   lsem lp ls0 ls1 ->
@@ -57,7 +64,7 @@ Lemma lsem_trans4 lp ls0 ls1 ls2 ls3 ls4 :
   lsem lp ls2 ls3 ->
   lsem lp ls3 ls4 ->
   lsem lp ls0 ls4.
-Proof. by repeat (move=> /lsem_trans /[apply]). Qed.
+Proof. exact: (lsem_transn _ [:: _; _; _; _; _ ]). Qed.
 
 Lemma lsem_trans5 lp ls0 ls1 ls2 ls3 ls4 ls5 :
   lsem lp ls0 ls1 ->
@@ -66,7 +73,7 @@ Lemma lsem_trans5 lp ls0 ls1 ls2 ls3 ls4 ls5 :
   lsem lp ls3 ls4 ->
   lsem lp ls4 ls5 ->
   lsem lp ls0 ls5.
-Proof. by repeat (move=> /lsem_trans /[apply]). Qed.
+Proof. exact: (lsem_transn _ [:: _; _; _; _; _; _ ]). Qed.
 
 Lemma find_labelE lbl c :
   find_label lbl c =
