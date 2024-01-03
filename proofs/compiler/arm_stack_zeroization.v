@@ -58,12 +58,12 @@ Notation rconst := (fun ws imm => Rexpr (fconst ws imm)) (only parsing).
 *)
 Definition sz_init : lcmd :=
   let args :=
-    arm_op_mov vsaved_sp vrsp
-    :: arm_cmd_load_large_imm voff stk_max
-    ++ arm_op_align vzero vsaved_sp alignment
-    :: arm_op_mov vrsp vzero
-    :: arm_op_sub vrsp vrsp voff
-    :: [:: arm_op_movi vzero 0 ]
+    Fopn.mov vsaved_sp vrsp
+    :: Fopn.li voff stk_max
+    ++ Fopn.align vzero vsaved_sp alignment
+    :: Fopn.mov vrsp vzero
+    :: Fopn.sub vrsp vrsp voff
+    :: [:: Fopn.movi vzero 0 ]
   in
   map (li_of_fopn_args dummy_instr_info) args.
 
@@ -100,7 +100,7 @@ Definition sz_loop : lcmd :=
   map (MkLI dummy_instr_info) irs.
 
 Definition restore_sp :=
-  [:: li_of_fopn_args dummy_instr_info (arm_op_mov vrsp vsaved_sp) ].
+  [:: li_of_fopn_args dummy_instr_info (Fopn.mov vrsp vsaved_sp) ].
 
 Definition stack_zero_loop : lcmd := sz_init ++ sz_loop ++ restore_sp.
 

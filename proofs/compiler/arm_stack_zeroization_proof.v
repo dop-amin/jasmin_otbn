@@ -186,12 +186,12 @@ Lemma sz_initP (s1 : estate) :
 Proof.
   move=> hvalid hrsp.
   move: hbody; rewrite /= map_cat /=.
-  set isave_sp := li_of_fopn_args _ (arm_op_mov _ _).
-  set iload_off := map _ (arm_cmd_load_large_imm _ _).
-  set ialign := li_of_fopn_args _ (arm_op_align _ _ _).
-  set istore_sp := li_of_fopn_args _ (arm_op_mov _ _).
-  set isub_sp := li_of_fopn_args _ (arm_op_sub _ _ _).
-  set izero := li_of_fopn_args _ (arm_op_movi _ _).
+  set isave_sp := li_of_fopn_args _ (Fopn.mov _ _).
+  set iload_off := map _ (Fopn.li _ _).
+  set ialign := li_of_fopn_args _ (Fopn.align _ _ _).
+  set istore_sp := li_of_fopn_args _ (Fopn.mov _ _).
+  set isub_sp := li_of_fopn_args _ (Fopn.sub _ _ _).
+  set izero := li_of_fopn_args _ (Fopn.movi _ _).
   rewrite -catA /=; move=> hbody'.
 
   have [vm2 [hsem2 hvm2 hoff2]] : [elaborate
@@ -212,7 +212,7 @@ Proof.
       have /= := wunsigned_range (align_word ws_align ptr).
       by lia.
     have /= := [elaborate
-      arm_cmd_load_large_imm_lsem (with_vm s1 (evm s1).[vsaved_sp <- Vword ptr]) hbody' hmax].
+      FopnP.li_lsem (with_vm s1 (evm s1).[vsaved_sp <- Vword ptr]) hbody' hmax].
     rewrite -/iload_off size_rcons -{1}addn1 => -[vm2 [hsem2 hvm2 hgetoff]].
     exists vm2; split=> //.
     + by rewrite size_cat /= -(addSnnS (size _) (size _)).
@@ -223,7 +223,7 @@ Proof.
     + rewrite /lsem1 /step.
       rewrite -{1}(addn0 (size _)).
       rewrite (find_instr_skip hbody) /=.
-      apply arm_op_mov_eval_instr.
+      apply FopnP.mov_eval_instr.
       by rewrite /get_var hrsp /=; reflexivity.
     rewrite /=.
     apply: lsem_trans.
@@ -233,7 +233,7 @@ Proof.
     + rewrite /lsem1 /step.
       rewrite -{1}(addn0 (size _)).
       rewrite (find_instr_skip hbody') /=.
-      apply arm_op_align_eval_instr.
+      apply FopnP.align_eval_instr.
       rewrite /get_var /=.
       rewrite hvm2;
         last by move=> /Sv.singleton_spec /= /(@inj_to_var _ _ _ _ _ _).
@@ -241,14 +241,14 @@ Proof.
     apply: lsem_step.
     + rewrite /lsem1 /step.
       rewrite (find_instr_skip hbody') /=.
-      apply arm_op_mov_eval_instr.
+      apply FopnP.mov_eval_instr.
       rewrite get_var_eq /=; last by [].
       by reflexivity.
     rewrite /= -addnA addn1.
     apply: lsem_step.
     + rewrite /lsem1 /step.
       rewrite (find_instr_skip hbody') /=.
-      apply arm_op_sub_eval_instr => /=.
+      apply FopnP.sub_eval_instr => /=.
       + rewrite get_var_eq /=; last by [].
         by reflexivity.
       rewrite get_var_neq;
@@ -261,7 +261,7 @@ Proof.
     rewrite /lsem1 /step.
     rewrite (find_instr_skip hbody') /=.
     rewrite !size_cat /= -addSn -(addn1 3) !addnA.
-    apply arm_op_movi_eval_instr.
+    apply FopnP.movi_eval_instr.
     by left.
   split=> /=.
   + do 4 (rewrite Vm.setP_neq;
@@ -534,7 +534,7 @@ Proof.
     rewrite /lsem1 /step.
     rewrite -{1}(addn0 (size _)).
     rewrite (find_instr_skip hbody) /=.
-    apply arm_op_mov_eval_instr.
+    apply FopnP.mov_eval_instr.
     by rewrite /get_var /= hsr.(sr_vsaved) /=; reflexivity.
   case: hsr => hscs hmem hvalid hdisj hzero hvm hsaved hrsp hvzero haligned hbound.
   split=> //=.
@@ -696,8 +696,7 @@ Context (hlabel : ~~ has (is_label lbl) pre).
 
 Lemma sz_init_no_lbl : ~~ has (is_label lbl) (sz_init rspi ws_align stk_max).
 Proof.
-  rewrite /= has_map has_cat /=.
-  rewrite /arm_cmd_load_large_imm.
+  rewrite /= has_map has_cat /= /Fopn.li.
   case: ifP => // _.
   by case: Z.div_eucl.
 Qed.
@@ -806,8 +805,7 @@ End RSP.
 Lemma sz_init_no_ext_lbl rsp ws_align stk_max :
   label_in_lcmd (sz_init rsp ws_align stk_max) = [::].
 Proof.
-  rewrite /= map_cat label_in_lcmd_cat /= cats0.
-  rewrite /arm_cmd_load_large_imm.
+  rewrite /= map_cat label_in_lcmd_cat /= cats0 /Fopn.li.
   case: ifP => // _.
   by case: Z.div_eucl.
 Qed.

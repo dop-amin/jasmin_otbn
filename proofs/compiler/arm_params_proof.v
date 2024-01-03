@@ -119,7 +119,7 @@ Lemma arm_spec_lip_allocate_stack_frame :
 Proof.
   move=> lp sp_rsp fn s pc ii ts sz hvm.
   rewrite -addn1.
-  apply: arm_op_subi_eval_instr.
+  apply: FopnP.subi_eval_instr.
   by rewrite /get_var hvm.
 Qed.
 
@@ -128,7 +128,7 @@ Lemma arm_spec_lip_free_stack_frame :
 Proof.
   move=> lp sp_rsp fn s pc ii ts sz hvm.
   rewrite -addn1.
-  apply: arm_op_addi_eval_instr.
+  apply: FopnP.addi_eval_instr.
   by rewrite /get_var hvm.
 Qed.
 
@@ -157,10 +157,10 @@ Proof.
   rewrite /set_up_sp_register /= /arm_set_up_sp_register hset_up /= -/vtmpi.
   rewrite map_cat.
   rewrite -catA /=.
-  set cmd_large_subi := _ _ (arm_cmd_large_subi _ _ _).
-  set i_mov_r := _ _ (arm_op_mov _ _).
-  set i_align_tmp := _ _ (arm_op_align _ _ _).
-  set i_mov_rsp := _ _ (arm_op_mov _ _).
+  set cmd_large_subi := _ _ (Fopn.smart_subi _ _ _).
+  set i_mov_r := _ _ (Fopn.mov _ _).
+  set i_align_tmp := _ _ (Fopn.align _ _ _).
+  set i_mov_rsp := _ _ (Fopn.mov _ _).
   rewrite -[i_mov_r :: _]/([:: i_mov_r ] ++ _).
   rewrite catA.
   move=> hbody.
@@ -178,7 +178,7 @@ Proof.
     exact: hneq_r_rsp.
 
   have [vm1 [hsem hvm1 hgettmp1]] :=
-    arm_cmd_large_subi_lsem
+    FopnP.smart_subi_lsem
       (s := with_vm s vm0)
       hbody
       hneq_tmp_rsp
@@ -199,7 +199,7 @@ Proof.
       rewrite -{1}(addn0 (size P)).
       rewrite (find_instr_skip hbody) /=.
       exact:
-        (arm_op_mov_eval_instr
+        (FopnP.mov_eval_instr
            _
            (ls := {| lvm := evm s; |})
            _ _ _
@@ -224,7 +224,7 @@ Proof.
       clear hbody.
       rewrite onth_cat -/cmd_large_subi ltnn subnn /=.
       exact:
-        (arm_op_align_eval_instr
+        (FopnP.align_eval_instr
            _
            (ls := {| lvm := vm1; |})
            _ _ _
@@ -246,7 +246,7 @@ Proof.
      have -> : forall m n, m + 1 + (n + 2) = m + 1 + (n + 1) + 1.
      - move=> ??. by rewrite -!addnA.
      exact:
-        (arm_op_mov_eval_instr
+        (FopnP.mov_eval_instr
            _
            (ls := {| lvm := vm2; |})
            _ _ _
@@ -299,10 +299,10 @@ Proof.
   set vrspi := mk_var_i vrsp.
   rewrite /set_up_sp_stack /= /arm_set_up_sp_stack hset_up /= -/vtmpi.
   rewrite map_cat /=.
-  set cmd_large_subi := map _ (arm_cmd_large_subi _ _ _).
-  set i_align_tmp := li_of_fopn_args _ (arm_op_align _ _ _).
-  set i_str_rsp := li_of_fopn_args _ (arm_op_str_off _ _ _).
-  set i_mov_rsp := li_of_fopn_args _ (arm_op_mov _ _).
+  set cmd_large_subi := map _ (Fopn.smart_subi _ _ _).
+  set i_align_tmp := li_of_fopn_args _ (Fopn.align _ _ _).
+  set i_str_rsp := li_of_fopn_args _ (Fopn.str _ _ _).
+  set i_mov_rsp := li_of_fopn_args _ (Fopn.mov _ _).
   rewrite -catA.
   move=> hbody.
 
@@ -313,7 +313,7 @@ Proof.
   clear hset_up.
 
   have [vm0 [hsem hvm0 hgettmp0]] :=
-    arm_cmd_large_subi_lsem (s := s) hbody hneq_tmp_rsp hgetrsp hsz.
+    FopnP.smart_subi_lsem (s := s) hbody hneq_tmp_rsp hgetrsp hsz.
   set vm1 := vm0.[vtmp <- Vword ts'].
   set vm2 := vm1.[vrsp <- Vword ts'].
 
@@ -338,7 +338,7 @@ Proof.
     + rewrite (find_instr_skip hbody) /=.
       rewrite onth_cat -/cmd_large_subi ltnn subnn /=.
       exact:
-        (arm_op_align_eval_instr
+        (FopnP.align_eval_instr
            _
            (ls := {| lvm := vm0; |})
            _ _ _
@@ -351,7 +351,7 @@ Proof.
       rewrite (find_instr_skip hbody) /=.
       rewrite onth_cat lt_nm_n sub_nmn /=.
       exact:
-        (arm_op_str_off_eval_instr
+        (FopnP.str_eval_instr
            _
            (ls := {| lvm := vm1; |})
            _
@@ -368,7 +368,7 @@ Proof.
       rewrite !size_cat /=.
       rewrite -(addn1 2) (addnS _ 2) (addnS (size P) _) -(addn1 (_ + _)).
       exact:
-        (arm_op_mov_eval_instr
+        (FopnP.mov_eval_instr
            _
            (ls := {| lvm := vm1; |})
            _ _ _
