@@ -1959,8 +1959,11 @@ Proof.
     move=> /(_ dc sz); rewrite /truncate_val /= hwmsf /= ha => -[] // s2' [] hsem hval.
     by exists s2'; split => //; apply sem_seq_ir.
 
-  t_xrbindP => es' he [rmap4 x'] ha /= ? <- m0 s1' hvs hext hsao; subst rmap4.
+  t_xrbindP=> es' he [rmap4 x'] ha /=.
+  t_xrbindP=> args hopn ? <- m0 s1' hvs hext hsao; subst rmap4.
   have [s2' [hw' hvalid']] := alloc_lvalsP hwf.(wfsl_no_overflow) hwf.(wfsl_disjoint) hwf.(wfsl_align) hpmap ha hvs (sopn_toutP hop) hw.
+
+
   exists s2'; split=> //.
   apply sem_seq1; do 2! constructor.
   by rewrite /sem_sopn P'_globs (alloc_esP hwf.(wfsl_no_overflow) hwf.(wfsl_align) hpmap hvs he hes) /= hop.

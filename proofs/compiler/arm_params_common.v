@@ -52,7 +52,7 @@ Module Opn (Args : OpnArgs).
   Definition subi := op_bin_imm SUB.
   Definition bici := op_bin_imm BIC.
 
-  Definition str x y off :=
+  Definition stri x y off :=
     let lv := lmem reg_size y off in
     ([:: lv ], Oarm (ARM_op STR default_opts), [:: rvar x ]).
 
@@ -98,6 +98,13 @@ Module Opn (Args : OpnArgs).
   (* Precondition: if [imm] is large, [x <> y]. *)
   Definition smart_subi x y :=
     gen_smart_opi sub subi is_arith_small (Some 0%Z) x x y.
+
+  Definition load_mem_imm
+    {_ : PointerData} (tmp : var_i) (woff : word Uptr) : seq opn_args * rval :=
+    let z := wsigned woff in
+    if is_mem_immediate z
+    then ([::], rconst Uptr z)
+    else (li tmp (wunsigned woff), rvar tmp).
 
   End WITH_PARAMS.
 

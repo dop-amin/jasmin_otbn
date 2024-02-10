@@ -464,8 +464,15 @@ Record stack_alloc_params :=
       -> pexpr        (* Variable with base address. *)
       -> Z            (* Offset. *)
       -> option instr_r;
+
     (* Build an instruction that assigns an immediate value *)
     sap_immediate : var_i -> Z -> instr_r;
+
+    (* Split memory accesses into valid steps for each architecture (e.g. if the
+       immediate offset is too big).
+       The first argument is a scratch register. *)
+    sap_split_mem_opn :
+      var_i -> seq lval -> sopn -> seq pexpr -> cexec (seq copn_args);
   }.
 
 Variant mov_kind :=
@@ -485,6 +492,8 @@ Context
 Section Section.
 
 Variables (pmap:pos_map).
+
+Definition split_mem_opn := sap_split_mem_opn saparams (mk_var_i (vxlen pmap)).
 
 Section ALLOC_E.
 
@@ -1191,9 +1200,10 @@ Fixpoint alloc_i sao (rmap:region_map) (i: instr) : cexec (region_map * cmd) :=
          Let rs := alloc_protect_ptr rmap ii r t e msf in
          ok (rs.1, [:: MkI ii rs.2])
       else
-      Let e  := add_iinfo ii (alloc_es rmap e) in
-      Let rs := add_iinfo ii (alloc_lvals rmap rs (sopn_tout o)) in
-      ok (rs.1, [:: MkI ii (Copn rs.2 t o e)])
+        Let es := add_iinfo ii (alloc_es rmap e) in
+        Let: (rmap, rs) := add_iinfo ii (alloc_lvals rmap rs (sopn_tout o)) in
+        Let args := split_mem_opn rs o es in
+        ok (rmap, map (i_of_copn_args ii t) args)
 
     | Csyscall rs o es =>
       alloc_syscall ii rmap rs o es 

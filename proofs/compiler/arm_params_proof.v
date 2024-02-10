@@ -35,8 +35,7 @@ Require Import
   arm_instr_decl
   arm_params_common_proof
   arm_lowering
-  arm_lowering_proof
-  arm_stack_zeroization_proof.
+  arm_lowering_proof.
 Require Export arm_params.
 
 Set Implicit Arguments.
@@ -55,14 +54,6 @@ Context
 
 (* ------------------------------------------------------------------------ *)
 (* Stack alloc hypotheses. *)
-
-Section STACK_ALLOC.
-
-Context
-  (P' : sprog)
-  (P'_globs : p_globs P' = [::]).
-
-End STACK_ALLOC.
 
 Lemma arm_mov_ofsP {dc : DirectCall} (P': sprog) s1 e i x tag ofs w vpk s2 ins :
   p_globs P' = [::]
@@ -100,6 +91,105 @@ Proof.
   case: x => - [] [] // [] // x xi _ /=.
   constructor.
   by rewrite /sem_sopn /= /exec_sopn /= truncate_word_u.
+Qed.
+
+Lemma write_lvals_eq_ex wdb gd lvs vs xs s1 s2 s1' s2' :
+  evm s1 =[\ xs ] evm s1' ->
+  disjoint xs (read_rvs lvs) ->
+  write_lvals wdb gd s1 lvs vs = ok s2 ->
+  write_lvals wdb gd s1' lvs vs = ok s2' ->
+  evm s2 =[\ xs ] evm s2'.
+Proof.
+
+Lemma lower_mem_offP
+  {dc : DirectCall} (sp : sprog) evt pre eoff' vtmp wdb v eoff ii tag s :
+  let: c := [seq i_of_copn_args ii tag a | a <- pre ] in
+  lower_mem_off vtmp eoff = (pre, eoff') ->
+  sem_pexpr wdb (p_globs sp) s eoff = ok v ->
+  exists vm,
+    let: s' := with_vm s vm in
+    [/\ psem.sem (pT := progStack) sp evt s c s'
+      , vm =[\ Sv.singleton vtmp ] evm s
+      & sem_pexpr wdb (p_globs sp) s' eoff' = ok v
+    ].
+Admitted.
+
+Lemma split_mem_opn {dc : DirectCall} :
+  split_mem_opn_correct (sap_split_mem_opn arm_saparams).
+Proof.
+  move=> evt sp s s' ii tag vtmp lvs op es args hargs htmplvs htmpes.
+  rewrite /sem_sopn.
+  t_xrbindP=> vres vargs hsemes hexec hwrite.
+
+  move: hargs.
+  rewrite /= /split_mem_opn.
+  case hlvs: split_mem_opn_match_lvs => [[[ws vbase] eoff]|]; first last.
+  - case hes: split_mem_opn_match_es => [[[ws vbase] eoff]|]; first last.
+    + move=> [?]; subst args.
+      eexists; last reflexivity.
+      apply: (sem_seq_ir (pT := progStack)).
+      constructor.
+      by rewrite /sem_sopn hsemes /= hexec /= hwrite /with_vm -surj_estate.
+
+  (* Memory access in [es]. *)
+  - case: es hes hsemes htmpes => [//|] [^e] [] //.
+    move=> [-> -> ->] /=.
+    t_xrbindP=> _ wb vb hgetbase hvb woff voff hsemeoff hvoff w hread <- ?
+      htmpes;
+      subst vargs.
+    case h: lower_mem_off => [pre eoff'] [?]; subst args.
+    have [vm [hsem hvm hsemeoff']] :=
+      [elaborate lower_mem_offP evt ii tag h hsemeoff ].
+    have [|vm' hwrite' hvm'] :=
+      write_lvals_eq_on (vm1 := vm) (SvP.MP.subset_refl (s := _)) hwrite.
+    + symmetry.
+      apply: (eq_ex_disjoint_eq_on hvm).
+      rewrite disjoint_singleton.
+      apply/negP.
+      by move=> /Sv_memP.
+    exists vm'; first last.
+
+    have /= := vrvsP hwrite'.
+    have /= := vrvsP hwrite.
+    Search eq_ex.
+
+      symmetry.
+    rewrite -cats1 map_cat /=.
+    apply: (sem_app (pT := progStack) hsem).
+    apply: (sem_seq_ir (pT := progStack)).
+    constructor=> /=.
+    rewrite /sem_sopn /=.
+    rewrite (get_var_eq_ex _ _ hvm).
+    + rewrite hgetbase /= hvb /= hsemeoff' /= hvoff /= hread /= hexec /=.
+
+
+  (* Memory access in [lvs]. *)
+  case: lvs hlvs hwrite htmplvs => [//|] [^lv] [] // [-> -> ->] /=.
+  case: vres hexec => [//|v []];
+    t_xrbindP=> // hexec _ wb vb hgetbase hvb woff voff hsemeoff hvoff w hv m
+      hwrite <- ? htmplvs;
+      subst s'.
+  case h: lower_mem_off => [pre eoff'] [?]; subst args.
+  have [vm [hsem hvm hsemeoff']] :=
+    [elaborate lower_mem_offP evt ii tag h hsemeoff ].
+  eexists; last exact: hvm.
+  rewrite -cats1 map_cat /=.
+  apply: (sem_app (pT := progStack) hsem).
+  apply: (sem_seq_ir (pT := progStack)).
+  constructor=> /=.
+  rewrite /sem_sopn -read_es_eq_on_empty.
+  - rewrite hsemes /= hexec /=.
+    rewrite (get_var_eq_ex _ _ hvm).
+    + rewrite hgetbase /= hvb /= hsemoff' /= hvoff /= hv /= hwrite.
+       reflexivity.
+    move: htmplvs.
+    rewrite read_rvs_cons read_rvs_nil /= read_eE.
+    SvD.fsetdec.
+  symmetry.
+  apply: (eq_ex_disjoint_eq_on hvm).
+  rewrite disjoint_singleton.
+  apply/negP.
+  by move=> /Sv_memP.
 Qed.
 
 Definition arm_hsaparams {dc : DirectCall} :

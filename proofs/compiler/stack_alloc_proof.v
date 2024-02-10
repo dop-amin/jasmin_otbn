@@ -2352,6 +2352,17 @@ Qed.
 
 (* ------------------------------------------------------------------ *)
 
+Definition split_mem_opn_correct
+  (split_mem_opn : var_i -> _ -> _ -> _ -> cexec _) : Prop :=
+  forall evt (P' : sprog) s s' ii tag (vtmp : var_i) lvs op es args,
+    split_mem_opn vtmp lvs op es = ok args ->
+    ~ Sv.In vtmp (read_rvs lvs) ->
+    ~ Sv.In vtmp (read_es es) ->
+    sem_sopn (p_globs P') op s lvs es = ok s' ->
+    let: c := [seq i_of_copn_args ii tag a | a <- args ] in
+    exists2 vm,
+      sem P' evt s c (with_vm s' vm) & vm =[\ Sv.singleton vtmp ] evm s'.
+
 Record h_stack_alloc_params (saparams : stack_alloc_params) :=
   {
     (* [mov_ofs] must behave as described in stack_alloc.v. *)
@@ -2362,12 +2373,15 @@ Record h_stack_alloc_params (saparams : stack_alloc_params) :=
         -> sap_mov_ofs saparams x tag vpk e ofs = Some ins
         -> write_lval true [::] x (Vword (i + wrepr Uptr ofs)) s1 = ok s2
         -> sem_i P' w s1 ins s2;
+
     (* specification of sap_immediate *)
     sap_immediateP :
     forall (P' : sprog) w s (x: var_i) z,
       vtype x = sword Uptr ->
       sem_i P' w s (sap_immediate saparams x z)
         (with_vm s (evm s).[x <- Vword (wrepr Uptr z)]);
+
+    sap_split_mem_opnP : split_mem_opn_correct (sap_split_mem_opn saparams);
   }.
 
 Context

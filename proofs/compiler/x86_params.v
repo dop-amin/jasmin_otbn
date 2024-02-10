@@ -63,6 +63,7 @@ Definition x86_saparams : stack_alloc_params :=
   {|
     sap_mov_ofs := x86_mov_ofs;
     sap_immediate := x86_immediate;
+    sap_split_mem_opn := fun _ lvs op es => ok [:: (lvs, op, es) ];
   |}.
 
 (* ------------------------------------------------------------------------ *)

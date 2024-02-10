@@ -75,6 +75,16 @@ Definition store_zero (off : fexpr) : linstr_r :=
       Lopn [:: current ] (Oarm op) [:: rvar vzero ]
     else Lalign. (* Absurd case. *)
 
+Definition dec_off :=
+  let opts :=
+    {| set_flags := true; is_conditional := false; has_shift := None; |}
+  in
+  let op := ARM_op SUB opts in
+  let dec := rconst U32 (wsize_size ws) in
+  Lopn (leflags ++ [:: LLvar voff ]) (Oarm op) [:: rvar voff; dec ].
+
+Definition sz_loop_body : seq linstr_r := [:: dec_off; store_zero (Fvar voff) ].
+
 (* Implementation:
 l1:
     ?{zf}, off = #SUBS(off, wsize_size ws)
@@ -82,20 +92,10 @@ l1:
     IF (!zf) GOTO l1
 *)
 Definition sz_loop : lcmd :=
-  let dec_off :=
-    let opts :=
-      {| set_flags := true; is_conditional := false; has_shift := None; |}
-    in
-    let op := ARM_op SUB opts in
-    let dec := rconst U32 (wsize_size ws) in
-    Lopn (leflags ++ [:: LLvar voff ]) (Oarm op) [:: rvar voff; dec ]
-  in
   let irs :=
-    [:: Llabel InternalLabel lbl
-      ; dec_off
-      ; store_zero (Fvar voff)
-      ; Lcond (Fapp1 Onot (Fvar vzf)) lbl
-    ]
+    Llabel InternalLabel lbl
+    :: sz_loop_body
+    ++ [:: Lcond (Fapp1 Onot (Fvar vzf)) lbl]
   in
   map (MkLI dummy_instr_info) irs.
 
@@ -107,7 +107,6 @@ Definition stack_zero_loop : lcmd := sz_init ++ sz_loop ++ restore_sp.
 Definition stack_zero_loop_vars :=
   sv_of_list v_var [:: vsaved_sp, voff, vzero & vflags].
 
-
 (* Implementation:
     (ws)[rsp + (stk_max / wsize_size ws - 1) * wsize_size ws] = zero
     ...
@@ -115,13 +114,18 @@ Definition stack_zero_loop_vars :=
     (ws)[rsp + 0] = zero
 *)
 Definition sz_unrolled : lcmd :=
-  let rn := rev (ziota 0 (stk_max / wsize_size ws)) in
-  [seq MkLI dummy_instr_info (store_zero (fconst reg_size (off * wsize_size ws))) | off <- rn ].
+  let n := (stk_max / wsize_size ws)%Z in
+  let mid := Z.min (4096 / wsize_size ws - 1)%Z n in
+  let mkli := MkLI dummy_instr_info in
+  let on_reg := map mkli sz_loop_body in
+  let big := flatten (nseq (Z.to_nat (n - mid)) on_reg) in
+  let on_imm off := mkli (store_zero (fconst reg_size (off * wsize_size ws))) in
+  let small := map on_imm (rev (ziota 0 mid)) in
+  big ++ small.
 
 Definition stack_zero_unrolled : lcmd := sz_init ++ sz_unrolled ++ restore_sp.
 
-(* [voff] is used, because it is set by [sz_init], even though it is not used in
-   the for loop. *)
+(* [voff] is used if the immediate is too big. *)
 Definition stack_zero_unrolled_vars :=
   sv_of_list v_var [:: vsaved_sp, voff, vzero & vflags].
 

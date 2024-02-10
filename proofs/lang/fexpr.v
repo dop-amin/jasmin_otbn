@@ -1,4 +1,7 @@
-From mathcomp Require Import all_ssreflect.
+From mathcomp Require Import
+  all_ssreflect
+  all_algebra
+  word_ssrZ.
 From Coq Require Import Utf8.
 Require Import expr.
 
@@ -17,6 +20,7 @@ Inductive fexpr :=
 (* --------------------------------------------------------------------------- *)
 Definition fconst (ws: wsize) (z: Z) : fexpr :=
   Fapp1 (Oword_of_int ws) (Fconst z).
+
 
 (* --------------------------------------------------------------------------- *)
 (* Right-expressions *)
