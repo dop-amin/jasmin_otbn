@@ -1864,7 +1864,8 @@ Section EQ_EX.
   Lemma on_arr_var_eq_ex s' s A x (f : forall n, WArray.array n -> exec A) :
     evm s' =[\ xs ] evm s ->
     ~ Sv.In x xs ->
-    on_arr_var (get_var wdb (evm s) x) f = on_arr_var (get_var wdb (evm s') x) f.
+    on_arr_var (get_var wdb (evm s) x) f
+    = on_arr_var (get_var wdb (evm s') x) f.
   Proof. move=> hvm hx. by rewrite /on_arr_var (get_var_eq_ex hx hvm). Qed.
 
   Lemma sem_pexpr_eq_ex s vm e :
@@ -1872,9 +1873,39 @@ Section EQ_EX.
     disjoint (read_e e) xs ->
     sem_pexpr wdb gd s e = sem_pexpr wdb gd (with_vm s vm) e.
   Proof.
-    elim: e => [//|//|//| x |||||||] hvm he.
-    - rewrite /= (get_gvar_eq_ex _ hvm) //. by rewrite -read_e_var.
-  Admitted.
+    elim: e =>
+      [ //
+      | //
+      | //
+      | ?
+      | ??? e hinde
+      | ???? e hinde
+      | ?? e hinde
+      | ? e hinde
+      | ? e0 hinde0 e1 hinde1
+      | ? [//|e es] hindes
+      | ? e hinde e0 hinde0 e1 hinde1
+      ] /= hvm.
+    - move=> ?. by rewrite /= (get_gvar_eq_ex _ hvm) // -read_e_var.
+    - rewrite read_e_Pget => /disjoint_union [??].
+      by rewrite -hinde // (get_gvar_eq_ex _ hvm).
+    - rewrite read_e_Psub => /disjoint_union [??].
+      by rewrite -hinde // (get_gvar_eq_ex _ hvm).
+    - rewrite read_e_Pload => /disjoint_add [??].
+      rewrite -hinde // (get_var_eq_ex _ hvm) //.
+      apply/Sv_memP.
+      by rewrite -disjoint_singleton.
+    - by rewrite read_e_Papp1 => /(hinde hvm) ->.
+    - by rewrite read_e_Papp2 => /disjoint_union [] /(hinde0 hvm) ->
+        /(hinde1 hvm) ->.
+    - rewrite read_e_PappN_cons => /disjoint_union [? hes].
+      rewrite hindes //=; last by left.
+      rewrite (mapM_ext (f2 := sem_pexpr wdb gd (with_vm s vm))) // => ??.
+      apply: hindes => //; first by right.
+      by eauto using disjoint_w, read_es_read_e.
+    rewrite read_e_Pif => /disjoint_union [? /disjoint_union [??]].
+    by rewrite hinde // hinde0 // hinde1.
+  Qed.
 
   Lemma sem_pexprs_eq_ex s vm es :
     vm =[\ xs ] evm s ->

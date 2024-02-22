@@ -61,11 +61,29 @@ Context
   (evt : extra_val_t)
 .
 
-
 Let mkv xname vi :=
   let: x := {| vname := xname; vtype := sword arm_reg_size; |} in
   let: xi := {| v_var := x; v_info := vi; |} in
   (xi, x).
+
+Lemma sem_copn_equiv gd args s :
+  ARMCopn_coreP.sem_copn_args gd args s
+  = sem_copn_args gd (ARMCopn.to_opn args) s.
+Proof.
+  rewrite /sem_copn_args /sem_sopn /exec_sopn /=.
+  case: args => -[lvs o] es /=.
+  case: sem_pexprs => //= ?.
+  by case: app_sopn.
+Qed.
+
+Lemma sem_fopns_equiv gd args s :
+  ARMCopn_coreP.sem_copns_args gd s args
+  = sem_copns_args gd s (map ARMCopn.to_opn args).
+Proof.
+  elim: args s => //= o os ih s.
+  rewrite sem_copn_equiv.
+  by case: sem_copn_args.
+Qed.
 
 Lemma li_sem gd s xname vi imm :
   let: (xi, x) := mkv xname vi in
@@ -73,8 +91,14 @@ Lemma li_sem gd s xname vi imm :
   exists vm',
     [/\ sem_copns_args gd s lcmd = ok (with_vm s vm')
       , vm' =[\ Sv.singleton x ] evm s
-      & get_var true vm' x = ok (Vword (wrepr reg_size imm)) ].
-Admitted.
+      & get_var true vm' x = ok (Vword (wrepr reg_size imm))
+    ].
+Proof.
+  have [vm' []] := ARMCopn_coreP.li_sem_copns_args gd s xname vi imm.
+  rewrite sem_fopns_equiv => h1 h2 h3.
+  by exists vm'.
+Qed.
+Opaque ARMCopn.li.
 
 Lemma load_mem_immP pre eimm xname vi imm ii tag s :
   let: x := {| vname := xname; vtype := sword arm_reg_size; |} in

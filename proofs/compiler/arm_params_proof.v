@@ -215,7 +215,7 @@ Proof.
     case h: lower_mem_off => [pre eoff'] [?]; subst args.
     have [vm [hsem hvm hsemeoff']] :=
       lower_mem_offP rip ii tag h hty hsemeoff hwoff.
-    have [|vm' hwrite' hvm'] := write_lvals_eq_ex (asm_op := unit) hvm _ hwrite.
+    have [|vm' hwrite' hvm'] := write_lvals_eq_ex hvm _ hwrite.
     + apply/disjoint_sym. rewrite disjoint_singleton. by apply/Sv_memP.
     eexists; last exact: hvm'.
     rewrite map_rcons -cats1.
@@ -244,7 +244,7 @@ Proof.
     apply: (sem_seq_ir (pT := progStack)).
     constructor.
     rewrite /sem_sopn /=.
-    rewrite -(sem_pexprs_eq_ex (asm_op := unit) _ _ hvm); first last.
+    rewrite -(sem_pexprs_eq_ex _ _ hvm); first last.
     + apply/disjoint_sym. rewrite disjoint_singleton. by apply/Sv_memP.
     rewrite hsemes /= hexec /= {hsemes hexec}.
     rewrite (get_var_eq_ex _ _ hvm); first last.

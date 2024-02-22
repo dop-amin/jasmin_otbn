@@ -347,6 +347,16 @@ Lemma read_es_cons e es :
   Sv.Equal (read_es (e :: es)) (Sv.union (read_e e) (read_es es)).
 Proof. by rewrite /read_es /= !read_esE read_eE; clear; SvD.fsetdec. Qed.
 
+Lemma read_es_read_e e es :
+  List.In e es ->
+  Sv.Subset (read_e e) (read_es es).
+Proof.
+  elim: es => [//|e' es hind] h.
+  rewrite read_es_cons.
+  case: (List.in_inv h) => [->|h']; first exact: Sv_Subset_union_left.
+  by auto using Sv_Subset_union_right.
+Qed.
+
 Lemma read_e_Pget aa ws x e :
   Sv.Equal (read_e (Pget aa ws x e)) (Sv.union (read_gvar x) (read_e e)).
 Proof. rewrite {1}/read_e /= read_eE. clear. SvD.fsetdec. Qed.
