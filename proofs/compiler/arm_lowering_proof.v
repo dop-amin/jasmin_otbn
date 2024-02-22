@@ -587,9 +587,10 @@ Lemma mov_imm_mnemonicP e mn e' :
 Proof.
   rewrite /mov_imm_mnemonic.
   case: is_constP => [] ?.
-  all: repeat case: ifP => _.
-  3: move=> /oassertP [_ ].
-  all: move=> [<- <-]; econstructor; by econstructor.
+  + case: ifP => _.
+    + by move=> [<- <-]; auto.
+    by move=> /oassertP [_ [<- <-]]; right; econstructor; eauto.
+  by move=> [<- <-]; auto.
 Qed.
 
 Lemma lower_Papp1P op e:
@@ -1563,12 +1564,13 @@ Lemma lower_copnP s0 s1 lvs tag op es lvs' op' es' :
   -> lower_copn lvs op es = Some (lvs', op', es')
   -> sem_i p' ev s0 (Copn lvs' tag op' es') s1.
 Proof.
-  case: op => // [[] // [] | [[[] aop]|]] // hfve.
-  - exact: lower_muluP.
-  - exact: lower_add_carryP.
+  case: op => // [[] // [] | [[[] aop]|]] //.
+  - move=> ?; exact: lower_muluP.
+  - move=> ?; exact: lower_add_carryP.
+  - by move=> len hfve h [<- <- <-].
+  - by move=> w hfve /sem_iE hsem /=; case: ifP => // hcmp [<- <- <-]; constructor.
   exact: lower_base_op.
 Qed.
-
 
 (* -------------------------------------------------------------------- *)
 

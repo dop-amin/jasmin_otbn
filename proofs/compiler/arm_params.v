@@ -23,6 +23,7 @@ Require Import
   arm_decl
   arm_extra
   arm_instr_decl
+  arm_params_core
   arm_params_common
   arm_lowering
   arm_stack_zeroization.
@@ -50,11 +51,20 @@ Definition arm_mov_ofs
   | MK_LEA => mk (ADR, [:: if ofs == Z0 then y else add y (eword_of_int reg_size ofs) ])
   | MK_MOV =>
     match x with
-    | Lvar _ =>
+    | Lvar x_ =>
       if is_load y then
         if ofs == Z0 then mk (LDR, [:: y]) else None
       else
-        if ofs == Z0 then mk (MOV, [:: y]) else mk (ADD, [::y; eword_of_int reg_size ofs ])
+        if ofs == Z0 then mk (MOV, [:: y])
+        else
+          (* This allows to remove constraint in register allocation *)
+          if is_arith_small ofs then mk (ADD, [::y; eword_of_int reg_size ofs ])
+          else
+            if y is Pvar y_ then
+              if [&& v_var x_ != v_var y_.(gv), is_lvar y_, vtype x_ == sword U32 & vtype y_.(gv) == sword U32] then
+                Some (Copn [::x; Lvar y_.(gv)] tag (Oasm (ExtOp Oarm_add_large_imm)) [::y; eword_of_int reg_size ofs ])
+              else None
+            else None
     | Lmem _ _ _ =>
       if ofs == Z0 then mk (STR, [:: y]) else None
     | _ => None
@@ -64,11 +74,14 @@ Definition arm_mov_ofs
 Definition arm_immediate (x: var_i) z :=
   Copn [:: Lvar x ] AT_none (Oarm (ARM_op MOV default_opts)) [:: cast_const z ].
 
+Definition arm_swap t (x y z w : var_i) :=
+  Copn [:: Lvar x; Lvar y] t (Oasm (ExtOp (Oarm_swap reg_size))) [:: Plvar z; Plvar w].
+
 (* Build the the immediate [eoff] if it does not fit in a single LDR/STR
    instruction. *)
 Definition lower_mem_off (tmp : var_i) (eoff : pexpr) : seq copn_args * pexpr :=
   if expr.is_wconst reg_size eoff is Some woff
-  then Copn.load_mem_imm tmp woff
+  then ARMCopn.load_mem_imm tmp woff
   else ([::], eoff).
 
 Definition split_mem_opn_match_lvs lvs :=
@@ -100,78 +113,74 @@ Definition arm_saparams : stack_alloc_params :=
   {|
     sap_mov_ofs := arm_mov_ofs;
     sap_immediate := arm_immediate;
+    sap_swap := arm_swap;
     sap_split_mem_opn := split_mem_opn;
   |}.
-
 
 (* ------------------------------------------------------------------------ *)
 (* Linearization parameters. *)
 
 Section LINEARIZATION.
 
-Notation vtmpi := (mk_var_i (to_var R12)).
+Notation vtmpi  := (mk_var_i (to_var R12)).
+Notation vtmp2i := (mk_var_i (to_var LR)).
 
-(* TODO_ARM: This assumes 0 <= sz < 4096. *)
-Definition arm_allocate_stack_frame (rspi : var_i) (sz : Z) :=
-  Fopn.subi rspi rspi sz.
+Definition arm_allocate_stack_frame (rspi : var_i) (tmp: option var_i) (sz : Z) :=
+  if tmp is Some aux then
+    ARMFopn.smart_subi_tmp rspi aux sz
+  else
+    [:: ARMFopn.subi rspi rspi sz].
 
-(* TODO_ARM: This assumes 0 <= sz < 4096. *)
-Definition arm_free_stack_frame (rspi : var_i) (sz : Z) :=
-  Fopn.addi rspi rspi sz.
-
-(* TODO_ARM: Review. This seems unnecessary. *)
-Definition arm_lassign
-  (lv : lexpr) (ws : wsize) (e : rexpr) : option _ :=
-  let%opt (mn, e') :=
-    match lv with
-    | LLvar _ =>
-        let%opt _ := chk_ws_reg ws in
-        match e with
-        | Rexpr (Fapp1 (Oword_of_int U32) (Fconst _))
-        | Rexpr (Fvar _) => Some (MOV, e)
-        | Load _ _ _ => Some (LDR, e)
-        | _ => None
-        end
-    | Store _ _ _ =>
-        let%opt mn := store_mn_of_wsize ws in
-        Some (mn, e)
-    end
-  in
-  Some ([:: lv ], Oarm (ARM_op mn default_opts), [:: e' ]).
+Definition arm_free_stack_frame (rspi : var_i) (tmp : option var_i) (sz : Z) :=
+  if tmp is Some aux then
+    ARMFopn.smart_addi_tmp rspi aux sz
+  else
+    [:: ARMFopn.addi rspi rspi sz].
 
 Definition arm_set_up_sp_register
   (rspi : var_i)
   (sf_sz : Z)
   (al : wsize)
-  (r : var_i) :
-  option (seq fopn_args) :=
-  let%opt _ := oassert ((0 <=? sf_sz)%Z && (sf_sz <? wbase reg_size)%Z) in
-  let i0 := Fopn.mov r rspi in
-  let load_imm := Fopn.smart_subi vtmpi rspi sf_sz in
-  let i1 := Fopn.align vtmpi vtmpi al in
-  let i2 := Fopn.mov rspi vtmpi in
-  Some (i0 :: load_imm ++ [:: i1; i2 ]).
+  (r : var_i)
+  (tmp : var_i) :
+  seq fopn_args :=
+  let load_imm := ARMFopn.smart_subi tmp rspi sf_sz in
+  let i0 := ARMFopn.align tmp tmp al in
+  let i1 := ARMFopn.mov r rspi in
+  let i2 := ARMFopn.mov rspi tmp in
+  load_imm ++ [:: i0; i1; i2 ].
 
-Definition arm_set_up_sp_stack
-  (rspi : var_i) (sf_sz : Z) (al : wsize) (off : Z) : option (seq fopn_args) :=
-  let%opt _ := oassert ((0 <=? sf_sz)%Z && (sf_sz <? wbase reg_size)%Z) in
-  let load_imm := Fopn.smart_subi vtmpi rspi sf_sz in
-  let i0 := Fopn.align vtmpi vtmpi al in
-  let i1 := Fopn.stri rspi vtmpi off in
-  let i2 := Fopn.mov rspi vtmpi in
-  Some (load_imm ++ [:: i0; i1; i2 ]).
+Definition arm_tmp  : Ident.ident := vname (v_var vtmpi).
+Definition arm_tmp2 : Ident.ident := vname (v_var vtmp2i).
 
-Definition arm_tmp : Ident.ident := vname (v_var vtmpi).
+Definition arm_lmove (xd xs : var_i) :=
+  ([:: LLvar xd], Oarm (ARM_op MOV default_opts), [:: Rexpr (Fvar xs)]).
+
+Definition arm_check_ws ws := ws == reg_size.
+
+Definition arm_lstore (xd : var_i) (ofs : Z) (xs : var_i) :=
+  let ws := reg_size in
+  let mn := STR in
+  ([:: Store ws xd (fconst ws ofs)], Oarm (ARM_op mn default_opts), [:: Rexpr (Fvar xs)]).
+
+Definition arm_lload (xd : var_i) (xs: var_i) (ofs : Z) :=
+  let ws := reg_size in
+  let mn := LDR in
+  ([:: LLvar xd], Oarm (ARM_op mn default_opts), [:: Load ws xs (fconst ws ofs)]).
 
 Definition arm_liparams : linearization_params :=
   {|
-    lip_tmp := arm_tmp;
+    lip_tmp  := arm_tmp;
+    lip_tmp2 := arm_tmp2;
     lip_not_saved_stack := [:: arm_tmp ];
     lip_allocate_stack_frame := arm_allocate_stack_frame;
     lip_free_stack_frame := arm_free_stack_frame;
     lip_set_up_sp_register := arm_set_up_sp_register;
-    lip_set_up_sp_stack := arm_set_up_sp_stack;
-    lip_lassign := arm_lassign;
+    lip_lmove := arm_lmove;
+    lip_check_ws := arm_check_ws;
+    lip_lstore  := arm_lstore;
+    lip_lstores := lstores_imm_dfl arm_tmp2 arm_lstore ARMFopn.smart_addi is_arith_small;
+    lip_lloads  := lloads_imm_dfl arm_tmp2 arm_lload  ARMFopn.smart_addi is_arith_small;
   |}.
 
 End LINEARIZATION.

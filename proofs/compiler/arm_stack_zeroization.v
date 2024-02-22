@@ -58,12 +58,12 @@ Notation rconst := (fun ws imm => Rexpr (fconst ws imm)) (only parsing).
 *)
 Definition sz_init : lcmd :=
   let args :=
-    Fopn.mov vsaved_sp vrsp
-    :: Fopn.li voff stk_max
-    ++ Fopn.align vzero vsaved_sp alignment
-    :: Fopn.mov vrsp vzero
-    :: Fopn.sub vrsp vrsp voff
-    :: [:: Fopn.movi vzero 0 ]
+    ARMFopn.mov vsaved_sp vrsp
+    :: ARMFopn.li voff stk_max
+    ++ ARMFopn.align vzero vsaved_sp alignment
+    :: ARMFopn.mov vrsp vzero
+    :: ARMFopn.sub vrsp vrsp voff
+    :: [:: ARMFopn.movi vzero 0 ]
   in
   map (li_of_fopn_args dummy_instr_info) args.
 
@@ -75,16 +75,6 @@ Definition store_zero (off : fexpr) : linstr_r :=
       Lopn [:: current ] (Oarm op) [:: rvar vzero ]
     else Lalign. (* Absurd case. *)
 
-Definition dec_off :=
-  let opts :=
-    {| set_flags := true; is_conditional := false; has_shift := None; |}
-  in
-  let op := ARM_op SUB opts in
-  let dec := rconst U32 (wsize_size ws) in
-  Lopn (leflags ++ [:: LLvar voff ]) (Oarm op) [:: rvar voff; dec ].
-
-Definition sz_loop_body : seq linstr_r := [:: dec_off; store_zero (Fvar voff) ].
-
 (* Implementation:
 l1:
     ?{zf}, off = #SUBS(off, wsize_size ws)
@@ -92,20 +82,31 @@ l1:
     IF (!zf) GOTO l1
 *)
 Definition sz_loop : lcmd :=
+  let dec_off :=
+    let opts :=
+      {| set_flags := true; is_conditional := false; has_shift := None; |}
+    in
+    let op := ARM_op SUB opts in
+    let dec := rconst U32 (wsize_size ws) in
+    Lopn (leflags ++ [:: LLvar voff ]) (Oarm op) [:: rvar voff; dec ]
+  in
   let irs :=
-    Llabel InternalLabel lbl
-    :: sz_loop_body
-    ++ [:: Lcond (Fapp1 Onot (Fvar vzf)) lbl]
+    [:: Llabel InternalLabel lbl
+      ; dec_off
+      ; store_zero (Fvar voff)
+      ; Lcond (Fapp1 Onot (Fvar vzf)) lbl
+    ]
   in
   map (MkLI dummy_instr_info) irs.
 
 Definition restore_sp :=
-  [:: li_of_fopn_args dummy_instr_info (Fopn.mov vrsp vsaved_sp) ].
+  [:: li_of_fopn_args dummy_instr_info (ARMFopn.mov vrsp vsaved_sp) ].
 
 Definition stack_zero_loop : lcmd := sz_init ++ sz_loop ++ restore_sp.
 
 Definition stack_zero_loop_vars :=
   sv_of_list v_var [:: vsaved_sp, voff, vzero & vflags].
+
 
 (* Implementation:
     (ws)[rsp + (stk_max / wsize_size ws - 1) * wsize_size ws] = zero
@@ -113,19 +114,30 @@ Definition stack_zero_loop_vars :=
     (ws)[rsp + wsize_size ws] = zero
     (ws)[rsp + 0] = zero
 *)
-Definition sz_unrolled : lcmd :=
-  let n := (stk_max / wsize_size ws)%Z in
-  let mid := Z.min (4096 / wsize_size ws - 1)%Z n in
-  let mkli := MkLI dummy_instr_info in
-  let on_reg := map mkli sz_loop_body in
-  let big := flatten (nseq (Z.to_nat (n - mid)) on_reg) in
-  let on_imm off := mkli (store_zero (fconst reg_size (off * wsize_size ws))) in
-  let small := map on_imm (rev (ziota 0 mid)) in
-  big ++ small.
+Definition sz_unrolled_aux : lcmd :=
+  let rn := rev (ziota 0 (stk_max / wsize_size ws)) in
+  [seq MkLI dummy_instr_info (store_zero (fconst reg_size (off * wsize_size ws))) | off <- rn ].
 
-Definition stack_zero_unrolled : lcmd := sz_init ++ sz_unrolled ++ restore_sp.
+Definition sz_unrolled err : cexec lcmd :=
+  let max := (stk_max / wsize_size ws)%Z in
+  let e :=
+    let s :=
+      [:: pp_s "Stack too large for strategy ""unrolled"" (the offsets don't"
+        ; pp_s "fit in the instruction encoding)."
+      ]
+    in
+    err (pp_box s)
+  in
+  Let _ := assert (is_mem_immediate ((max - 1) * wsize_size ws)) e in
+  ok sz_unrolled_aux.
 
-(* [voff] is used if the immediate is too big. *)
+
+Definition stack_zero_unrolled err : cexec lcmd :=
+  Let c := sz_unrolled err in
+  ok (sz_init ++ c ++ restore_sp).
+
+(* [voff] is used, because it is set by [sz_init], even though it is not used in
+   the for loop. *)
 Definition stack_zero_unrolled_vars :=
   sv_of_list v_var [:: vsaved_sp, voff, vzero & vflags].
 
@@ -138,9 +150,9 @@ Definition stack_zeroization_cmd
   (ws_align ws : wsize)
   (stk_max : Z) :
   cexec (lcmd * Sv.t) :=
-  let err msg :=
+  let err pp :=
     {|
-      pel_msg := compiler_util.pp_s msg;
+      pel_msg := pp;
       pel_fn := None;
       pel_fi := None;
       pel_ii := None;
@@ -149,18 +161,20 @@ Definition stack_zeroization_cmd
       pel_internal := false;
   |}
   in
-  let err_size :=
-    err "Stack zeroization size not supported in ARMv7"%string in
+  let err_size := err (pp_s "Stack zeroization size not supported in ARMv7") in
   Let _ := assert (ws <= U32)%CMP err_size in
   let rsp := vid rspn in
   match szs with
   | SZSloop =>
     ok (stack_zero_loop rsp lbl ws_align ws stk_max, stack_zero_loop_vars)
   | SZSloopSCT =>
-    let err_sct := err "Strategy ""loop with SCT"" is not supported in ARMv7"%string in
+    let err_sct :=
+      err (pp_s "Strategy ""loop with SCT"" is not supported in ARMv7")
+    in
     Error err_sct
   | SZSunrolled =>
-    ok (stack_zero_unrolled rsp ws_align ws stk_max, stack_zero_unrolled_vars)
+    Let c := stack_zero_unrolled rsp ws_align ws stk_max err in
+    ok (c, stack_zero_unrolled_vars)
   end.
 
 End STACK_ZEROIZATION.

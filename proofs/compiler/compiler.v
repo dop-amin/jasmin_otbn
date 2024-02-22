@@ -18,6 +18,7 @@ Require Import
   array_init
   constant_prop
   dead_calls
+  lower_spill
   dead_code
   inline
   linearization
@@ -80,6 +81,7 @@ Variant compiler_step :=
   | ParamsExpansion             : compiler_step
   | ArrayCopy                   : compiler_step
   | AddArrInit                  : compiler_step
+  | LowerSpill                  : compiler_step
   | Inlining                    : compiler_step
   | RemoveUnusedFunction        : compiler_step
   | Unrolling                   : compiler_step
@@ -111,6 +113,7 @@ Definition compiler_step_list := [::
   ; ParamsExpansion
   ; ArrayCopy
   ; AddArrInit
+  ; LowerSpill
   ; Inlining
   ; RemoveUnusedFunction
   ; Unrolling
@@ -212,6 +215,9 @@ Definition remove_phi_nodes_prog (p: _uprog) : _uprog :=
 
 Definition var_tmp : var :=
   {| vname := lip_tmp liparams; vtype := sword Uptr; |}.
+Definition var_tmp2 : var :=
+  {| vname := lip_tmp2 liparams; vtype := sword Uptr; |}.
+Definition var_tmps : Sv.t := Sv.add var_tmp2 (Sv.singleton var_tmp).
 
 (* Ensure that export functions are preserved *)
 Definition check_removereturn (entries: seq funname) (remove_return: funname → option (seq bool)) :=
@@ -256,6 +262,9 @@ Definition compiler_first_part (to_keep: seq funname) (p: prog) : cexec uprog :=
 
   let p := add_init_prog p in
   let p := cparams.(print_uprog) AddArrInit p in
+
+  Let p := spill_prog cparams.(fresh_var_ident) p in
+  let p := cparams.(print_uprog) LowerSpill p in
 
   Let p := inlining to_keep p in
 
@@ -359,7 +368,7 @@ Definition check_export entries (p: sprog) : cexec unit :=
 Definition compiler_back_end entries (pd: sprog) :=
   Let _ := check_export entries pd in
   (* linearisation                     *)
-  Let _ := merge_varmaps.check pd var_tmp in
+  Let _ := merge_varmaps.check pd var_tmps in
   Let pl := linear_prog liparams pd in
   let pl := cparams.(print_linear) Linearization pl in
   (* stack zeroization                 *)

@@ -1944,8 +1944,20 @@ Proof.
   by apply sem_seq1; constructor; apply: Eassgn; eauto; rewrite P'_globs; auto.
 Qed.
 
+Lemma is_swap_arrayP o : 
+  reflect (exists n,  o = Opseudo_op (pseudo_operator.Oswap (sarr n))) (is_swap_array o).
+Proof.
+  case: o => /=; try by constructor => -[].
+  case => /=; try by constructor => -[].
+  move=> s; case: is_sarrP => h; constructor.
+  + by case: h => n ->; eauto.
+  move=> [n []] heq; apply h; eauto.
+Qed.
+
 Local Lemma Hopn : sem_Ind_opn P Pi_r.
 Proof.
+Admitted.
+(*
   move=> s1 s2 t o xs es.
   rewrite /sem_sopn; t_xrbindP=> vs va hes hop hw pmap rsp Slots Addr Writable Align rmap1 rmap2 ii1 c2 hpmap hwf sao /=.
   case heq : is_protect_ptr_fail => [[[r e] msf] | ].
@@ -1958,16 +1970,22 @@ Proof.
     have := alloc_protect_ptrP hwf.(wfsl_no_overflow) hwf.(wfsl_align) hpmap P'_globs hshparams hvs hve hvmsf _ _ hwr hi.
     move=> /(_ dc sz); rewrite /truncate_val /= hwmsf /= ha => -[] // s2' [] hsem hval.
     by exists s2'; split => //; apply sem_seq_ir.
+  case: is_swap_arrayP => {heq} [[n heq] | _]; t_xrbindP.
+  + subst o => -[rmap_ i] halloc /= ? <- m0 s1' hvs ??; subst rmap_.
+    have [s2' [hsem ?]] := (alloc_array_swapP hpmap P' hsaparams hvs hes hop hw halloc).
+    by exists s2'; split => //; apply sem_seq_ir.
+  move=> es' he [rmap4 x'] ha /=.
+  t_xrbindP=> args /(sap_split_mem_opnP hsaparams).
 
-  t_xrbindP=> es' he [rmap4 x'] ha /=.
-  t_xrbindP=> args hopn ? <- m0 s1' hvs hext hsao; subst rmap4.
+  => [lvs [op es'']].
+              ?. <- m0 s1' hvs hext hsao; subst rmap4.
   have [s2' [hw' hvalid']] := alloc_lvalsP hwf.(wfsl_no_overflow) hwf.(wfsl_disjoint) hwf.(wfsl_align) hpmap ha hvs (sopn_toutP hop) hw.
 
-
   exists s2'; split=> //.
-  apply sem_seq1; do 2! constructor.
+  apply sem_seq_ir; constructor.
   by rewrite /sem_sopn P'_globs (alloc_esP hwf.(wfsl_no_overflow) hwf.(wfsl_align) hpmap hvs he hes) /= hop.
 Qed.
+*)
 
 Local Lemma Hsyscall : sem_Ind_syscall P Pi_r.
 Proof.

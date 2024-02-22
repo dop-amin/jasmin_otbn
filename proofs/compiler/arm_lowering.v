@@ -185,15 +185,12 @@ Definition Z_mod_lnot (z : Z) (ws : wsize) : Z :=
 Definition mov_imm_mnemonic (e : pexpr) : option (arm_mnemonic * pexpr) :=
   if is_const e is Some z
   then
-    if is_expandable z
-    then Some (MOV, e)
+    if is_expandable_or_shift z || is_w16_encoding z then
+      Some (MOV, e)
     else
-      if is_w16_encoding z
-      then Some (MOV, e)
-      else
-        let nz := Z_mod_lnot z reg_size in
-        let%opt _ := oassert (is_expandable nz) in
-        Some (MVN, Pconst nz)
+      let nz := Z_mod_lnot z reg_size in
+      let%opt _ := oassert (is_expandable_or_shift nz) in
+      Some (MVN, Pconst nz)
   else Some (MOV, e).
 
 Definition lower_Papp1 (ws : wsize) (op : sop1) (e : pexpr) : lowered_pexpr :=
@@ -414,11 +411,23 @@ Definition lower_base_op
       | _ => None end
     else None.
 
+Definition lower_swap ty lvs es : option copn_args := 
+  match ty with
+  | sword sz => 
+    if (sz <= U32)%CMP then 
+      Some (lvs, Oasm (ExtOp (Oarm_swap sz)), es)
+    else None
+  | sarr _ => 
+      Some (lvs, Opseudo_op (Oswap ty), es)
+  | _ => None
+  end.
+
 Definition lower_pseudo_operator
   (lvs : seq lval) (op : pseudo_operator) (es : seq pexpr) : option copn_args :=
   match op with
   | Oaddcarry U32 => lower_add_carry lvs es
   | Omulu U32 => lower_mulu lvs es
+  | Oswap ty => lower_swap ty lvs es
   | _ => None
   end.
 

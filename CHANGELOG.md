@@ -3,6 +3,35 @@
 
 ## New features
 
+- The type systems for constant time and speculative constant time now ensure
+  that division and modulo operators may only be used with public arguments.
+  This ensures that problems like KyberSlash (https://kyberslash.cr.yp.to/) do
+  not occur.
+  ([PR #722](https://github.com/jasmin-lang/jasmin/pull/722)).
+
+- Add spill/unspill primitives allowing to spill/unspill reg and reg ptr
+  to/from the stack without need to declare the corresponding stack variable.
+  If the annotation #spill_to_mmx is used at the variable declaration the variable
+  is spilled into a mmx variable (this works only for x86)
+  See `compiler/tests/success/common/spill.jazz`.
+  and `compiler/tests/success/X86-64/spill_mmx.jazz`.
+  ([PR #687](https://github.com/jasmin-lang/jasmin/pull/687)) and
+  ([PR #692](https://github.com/jasmin-lang/jasmin/pull/692)).
+
+- Add a swap primitive,
+    `x, y = #swap(x, y)`
+  to allow swapping the contents of two operands.
+  The x and y can be reg or reg ptr.
+  The swap is performed without the need of extra register or memory access.
+  On arm-m4, this is compiled using 3 xor instructions.
+  See `compiler/tests/success/common/swap.jazz` and
+      `compiler/tests/success/common/swap_word.jazz` for usage.
+  ([PR #691](https://github.com/jasmin-lang/jasmin/pull/691)).
+
+- Add the x86_64 instruction `XCHG`,
+    `a, b = #XCHG(a, b);` to allow swapping the contents of two operands.
+  ([PR #678](https://github.com/jasmin-lang/jasmin/pull/678)).
+
 - Support Selective Speculative Load Hardening.
   We now support operators SLH operators as in [Typing High-Speed Cryptography
   against Spectre v1](https://ia.cr/2022/1270).
@@ -10,10 +39,12 @@
   We also provide a speculative CCT checker, via the compiler flag `-checkSCT`.
   ([PR #447](https://github.com/jasmin-lang/jasmin/pull/447)).
 
-- Register arrays can appear as arguments and return values of local functions;
+- Register arrays and sub-arrays can appear as arguments and return values of
+  local functions;
   the “make-reference-arguments” pass is now run before expansion of register
-  arrays;
-  ([PR #452](https://github.com/jasmin-lang/jasmin/pull/452)).
+  arrays
+  ([PR #452](https://github.com/jasmin-lang/jasmin/pull/452),
+  [PR #720](https://github.com/jasmin-lang/jasmin/pull/720)).
 
 - Add the instruction `MULX_hi`,
      `hi = #MULX_hi(x, y);` is equivalent to `hi, _ = #MULX(x, y);`
@@ -39,6 +70,13 @@
   against Spectre).
   ([PR #631](https://github.com/jasmin-lang/jasmin/pull/631)).
 
+- Interleave references to source-code positions within the assembly listings
+  when the `-g` command-line flag is given (off by default).
+  ([PR #684](https://github.com/jasmin-lang/jasmin/pull/684)).
+
+- Extraction as EasyCrypt code targets version 2024.01
+  ([PR #690](https://github.com/jasmin-lang/jasmin/pull/690)).
+
 ## Bug fixes
 
 - Type-checking rejects invalid variants of primitive operators
@@ -63,6 +101,15 @@
 - Remove dead functions after loop unrolling
   ([PR 611](https://github.com/jasmin-lang/jasmin/pull/611);
   fixes [#607](https://github.com/jasmin-lang/jasmin/issues/607)).
+
+- Fix code generation for ARMv7 when stack frames are large
+  ([PR 677](https://github.com/jasmin-lang/jasmin/pull/677)
+  [PR 712](https://github.com/jasmin-lang/jasmin/pull/697);
+  fixes [#696](https://github.com/jasmin-lang/jasmin/issues/696)).
+
+- Fix code generation for ARMv7 when export function have large stack frames
+  ([PR #710](https://github.com/jasmin-lang/jasmin/pull/710);
+   fixes [#709](https://github.com/jasmin-lang/jasmin/issues/709)).
 
 ## Other changes
 

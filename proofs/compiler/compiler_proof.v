@@ -8,6 +8,7 @@ Require Import
   psem_facts.
 Require Import
   allocation_proof
+  lower_spill_proof
   inline_proof
   dead_calls_proof
   makeReferenceArguments_proof
@@ -183,7 +184,8 @@ Lemma compiler_first_partP entries (p: prog) (p': uprog) scs m fn va scs' m' vr 
     sem_call (dc:=direct_c) p' tt scs m fn va scs' m' vr'.
 Proof.
   rewrite /compiler_first_part; t_xrbindP => pa0.
-  rewrite print_uprogP => ok_pa0 pa.
+  rewrite print_uprogP => ok_pa0 pb.
+  rewrite print_uprogP => ok_pb pa.
   rewrite print_uprogP => ok_pa pc ok_pc.
   rewrite !print_uprogP => pd ok_pd.
   rewrite !print_uprogP => pe ok_pe.
@@ -225,6 +227,8 @@ Proof.
   - by move => vr'; exact: (dead_calls_err_seqP (sip := sip_of_asm_e) (sCP := sCP_unit) ok_pd).
   apply: compose_pass_uincl; first by move=> vr' Hvr'; apply: (unrollP ok_pc _ va_refl); exact: Hvr'.
   apply: compose_pass_uincl'; first by move => vr' Hvr'; apply: (inliningP ok_pa ok_fn); exact: Hvr'.
+  apply: compose_pass.
+  - by move=> vr'; apply: (lower_spill_fdP (sip := sip_of_asm_e) (sCP := sCP_unit) ok_pb).
   apply: compose_pass; first by move => vr'; apply: (add_init_fdP).
   apply: compose_pass_uincl.
   - by move=> vr'; apply:(array_copy_fdP (sCP := sCP_unit) ok_pa0 va_refl).
@@ -507,7 +511,7 @@ Lemma compiler_back_endP
         match_mem m lm →
         List.Forall2 value_uincl args (map (λ x : var_i, vm.[x]) fd.(lfd_arg)) →
         vm.[vid tp.(lp_rip)] = Vword rip →
-        vm_initialized_on vm (var_tmp aparams :: lfd_callee_saved fd) →
+        vm_initialized_on vm (lfd_callee_saved fd) →
         allocatable_stack m (lfd_total_stack fd) ->
         ∃ vm' lm',
           [/\
@@ -525,9 +529,9 @@ Proof.
   rewrite print_linearP => tp' ok_tp.
   rewrite print_linearP => ?; subst tp'.
   move=> /InP ok_fn exec_p.
-  set vtmp := var_tmp aparams.
-  have vtmp_not_magic : ~~ Sv.mem vtmp (magic_variables p).
-  - apply/Sv_memP; exact: var_tmp_not_magic checked_p.
+  set vtmp := var_tmps aparams.
+  have vtmp_not_magic : disjoint vtmp (magic_variables p).
+  - by apply: (var_tmp_not_magic checked_p).
   have p_call :
     sem_export_call p vtmp rip scs m fn args scs' m' res.
   - apply: (merge_varmaps_export_callP checked_p _ exec_p).
@@ -681,7 +685,7 @@ Proof.
   have! [|] := (lsem_run_tunnel_program ok_tp zp_exec).
   - by exists zfd.
   - move => tp_exec _.
-    rewrite /lfd_body size_tunnel_lcmd.
+    rewrite /ls_export_final size_tunnel_lcmd.
     exact: tp_exec.
   exact: ok_callee_saved.
 Qed.
@@ -771,12 +775,6 @@ Proof.
   - case: LM => _ _ Y _ _ _ _.
     by move: Y => /= ->; rewrite ok_rip.
   - move => /=.
-    apply/andP; split.
-    + rewrite /var_tmp.
-      have [tmp_r htmp] := ok_lip_tmp haparams.
-      rewrite -(of_identI htmp) /get_var (XM (ARReg _)).
-      by rewrite /get_typed_reg_value /= truncate_word_u.
-
     apply/allP => x /ok_callee_saved hin.
     have [r ->]: exists2 r, x = (var_of_asm_typed_reg r) & vtype x != sbool.
     + by move/andP: hin => [->] /is_okP [] r /asm_typed_reg_of_varI ->; exists r.
