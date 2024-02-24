@@ -146,17 +146,17 @@ Proof.
     !truncate_word_u /= /write_var /set_var /= hxty hyty //=.
 Qed.
 
-Lemma lower_mem_offP rip pre eoff' vtmp v w eoff ii tag s :
+Lemma lower_mem_offP sp evt pre eoff' vtmp v w eoff ii tag s :
   let: c := [seq i_of_copn_args ii tag a | a <- pre ] in
   lower_mem_off vtmp eoff = (pre, eoff') ->
   vtype vtmp = spointer ->
-  sem_pexpr true (p_globs P') s eoff = ok v ->
+  sem_pexpr true (p_globs sp) s eoff = ok v ->
   to_pointer v = ok w ->
   exists vm,
     let: s' := with_vm s vm in
-    [/\ psem.sem (pT := progStack) P' rip s c s'
+    [/\ psem.sem (pT := progStack) sp evt s c s'
       , vm =[\ Sv.singleton vtmp ] evm s
-      & Let v' := sem_pexpr true (p_globs P') s' eoff' in to_pointer v' = ok w
+      & Let v' := sem_pexpr true (p_globs sp) s' eoff' in to_pointer v' = ok w
     ].
 Proof.
   move: vtmp => [[[|||[]] tmpname] tmpi] //.
@@ -168,29 +168,18 @@ Proof.
     + by constructor.
     + by rewrite hsemeoff.
     move=>
-      /(ARMCopnP.load_mem_immP (sCP := sCP_stack) P' rip ii tag s)
+      /(ARMCopnP.load_mem_immP (sCP := sCP_stack) sp evt ii tag s)
       [vm [hsem hvm hsemeoff']] _ hsemeoff hv.
   eexists; split; [exact: hsem | done|].
   rewrite hsemeoff' /= {hsemeoff'}.
-  move: heoff => /(is_wconstP true (p_globs P') s).
+  move: heoff => /(is_wconstP true (p_globs sp) s).
   rewrite hsemeoff /= hv {hsemeoff hv} => -[?]; subst w.
   by rewrite truncate_word_u.
 Qed.
 
-(* TODO: Use split_mem_opn_correct (sap_split_mem_opn arm_saparams).*)
-Lemma split_mem_opnP rip :
-  forall s s' ii tag (vtmp : var_i) lvs op es args,
-    split_mem_opn vtmp lvs op es = ok args ->
-    vtype (v_var vtmp) = spointer ->
-    ~ Sv.In vtmp (read_rvs lvs) ->
-    ~ Sv.In vtmp (read_es es) ->
-    sem_sopn (p_globs P') op s lvs es = ok s' ->
-    let: c := [seq i_of_copn_args ii tag a | a <- args ] in
-    exists2 vm,
-      psem.sem (pT := progStack) P' rip s c (with_vm s' vm)
-      & vm =[\ Sv.singleton vtmp ] evm s'.
+Lemma split_mem_opnP : split_mem_opn_correct (sap_split_mem_opn arm_saparams).
 Proof.
-  move=> s s' ii tag vtmp lvs op es args hargs hty htmplvs htmpes.
+  move=> sp evt s s' ii tag vtmp lvs op es args hargs hty htmplvs htmpes.
   rewrite /sem_sopn.
   t_xrbindP=> vres vargs hsemes hexec hwrite.
 
@@ -214,7 +203,7 @@ Proof.
       subst vargs.
     case h: lower_mem_off => [pre eoff'] [?]; subst args.
     have [vm [hsem hvm hsemeoff']] :=
-      lower_mem_offP rip ii tag h hty hsemeoff hwoff.
+      lower_mem_offP evt ii tag h hty hsemeoff hwoff.
     have [|vm' hwrite' hvm'] := write_lvals_eq_ex hvm _ hwrite.
     + apply/disjoint_sym. rewrite disjoint_singleton. by apply/Sv_memP.
     eexists; last exact: hvm'.
@@ -237,7 +226,7 @@ Proof.
   case: vres hexec => [|//] hexec [?] htmp; subst s'.
   case h: lower_mem_off => [pre eoff'] [?]; subst args.
   have [vm [hsem hvm hsemeoff']] :=
-    lower_mem_offP rip ii tag h hty hsemeoff hwoff.
+    lower_mem_offP evt ii tag h hty hsemeoff hwoff.
   eexists.
   - rewrite map_rcons -cats1.
     apply: (sem_app hsem).

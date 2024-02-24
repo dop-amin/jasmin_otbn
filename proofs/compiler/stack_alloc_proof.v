@@ -2353,16 +2353,16 @@ Qed.
 (* ------------------------------------------------------------------ *)
 
 Definition split_mem_opn_correct
-  (split_mem_opn : var_i -> _ -> _ -> _ -> cexec _) : Prop :=
-  forall (P' : sprog) evt s s' ii tag (vtmp : var_i) lvs op es args,
+  (split_mem_opn : _ -> _ -> _ -> _ -> cexec _) : Prop :=
+  forall (sp : sprog) evt s s' ii tag vtmp lvs op es args,
     split_mem_opn vtmp lvs op es = ok args ->
     vtype (v_var vtmp) = spointer ->
     ~ Sv.In vtmp (read_rvs lvs) ->
     ~ Sv.In vtmp (read_es es) ->
-    sem_sopn (p_globs P') op s lvs es = ok s' ->
+    sem_sopn (p_globs sp) op s lvs es = ok s' ->
     let: c := [seq i_of_copn_args ii tag a | a <- args ] in
     exists2 vm,
-      sem P' evt s c (with_vm s' vm) & vm =[\ Sv.singleton vtmp ] evm s'.
+      sem sp evt s c (with_vm s' vm) & vm =[\ Sv.singleton vtmp ] evm s'.
 
 Record h_stack_alloc_params (saparams : stack_alloc_params) :=
   {
@@ -4020,27 +4020,33 @@ Qed.
   then we preserve [valid_state]. This is applied only to [vxlen] for now, so it
   seems a bit overkill to have a dedicated lemma.
 *)
-Lemma valid_state_distinct_reg rmap m0 s1 s2 x v :
+Lemma valid_state_distinct_reg rmap m0 s1 s2 vm x :
   valid_state rmap m0 s1 s2 ->
   x <> pmap.(vrip) ->
   x <> pmap.(vrsp) ->
   Sv.In x pmap.(vnew) ->
   (forall y p, get_local pmap y = Some (Pregptr p) -> x <> p) ->
-  valid_state rmap m0 s1 (with_vm s2 (evm s2).[x <- v]).
+  vm =[\ Sv.singleton x ] evm s2 ->
+  valid_state rmap m0 s1 (with_vm s2 vm).
 Proof.
-  move=> hvs hnrip hnrsp hnew hneq.
-  case:(hvs) => hscs hvalid hdisj hincl hincl2 hunch hrip hrsp heqvm hwfr heqmem hglobv htop.
-  constructor=> //=.
-  + by rewrite Vm.setP_neq //; apply /eqP.
-  + by rewrite Vm.setP_neq //; apply /eqP.
-  + by move=> y ??; rewrite Vm.setP_neq; [auto|apply/eqP;congruence].
+  move=> hvs hnrip hnrsp hnew hneq hvm.
+  move: (hvs) => [hscs hvalid hdisj hincl hincl2 hunch hrip hrsp heqvm hwfr
+    heqmem hglobv htop].
+  split=> //=.
+  - rewrite hvm //. apply/Sv.singleton_spec. by symmetry.
+  - rewrite hvm //. apply/Sv.singleton_spec. by symmetry.
+  - move=> y ? hy.
+    rewrite hvm; first exact: heqvm.
+    move=> /Sv.singleton_spec ?; by subst y.
   case: (hwfr) => hwfsr hval hptr; split=> //.
   move=> y sry /hptr [pky [hly hpk]].
   rewrite hly.
   eexists; split; first by reflexivity.
   case: pky hly hpk => //= p hly hgetp.
-  rewrite Vm.setP_neq //; apply/eqP.
-  by apply: hneq hly.
+  rewrite hvm //.
+  apply/Sv.singleton_spec.
+  symmetry.
+  exact: (hneq _ _ hly).
 Qed.
 
 Lemma fill_fill_mem rmap m0 s1 s2 sr len l a :
@@ -4167,11 +4173,12 @@ Proof.
   have := @sap_immediateP _ hsaparams P' rip s2 (with_var (gv g) (vxlen pmap)) len (@wt_len wf_pmap0).
   set s2' := with_vm s2 _ => hsem1.
   have hvs': valid_state rmap m0 s1 s2'.
-    apply (valid_state_distinct_reg _ hvs).
-    + by apply len_neq_rip.
-    + by apply len_neq_rsp.
-    + by apply len_in_new.
-    by move=> y p; apply len_neq_ptr.
+  + apply: (valid_state_distinct_reg hvs).
+    * exact: len_neq_rip.
+    * exact: len_neq_rsp.
+    * exact: len_in_new.
+    * exact: len_neq_ptr.
+    move=> y /Sv.singleton_spec ?. rewrite Vm.setP_neq //. by apply/eqP/nesym.
 
   have hwfg: wf_sub_region srg g.(gv).(vtype).
   + have hgvalidg := check_gvalid_lvar hgetg.

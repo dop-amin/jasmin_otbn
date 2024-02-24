@@ -1212,7 +1212,12 @@ Definition alloc_array_swap rmap rs t es :=
     Error (stk_error_no_var "swap: invalid args or result, only reg ptr are accepted")
   end.
 
-Fixpoint alloc_i sao (rmap:region_map) (i: instr) : cexec (region_map * cmd) :=
+Context
+  (warning : instr_info -> warning_msg -> instr_info)
+  (sao : stk_alloc_oracle_t)
+.
+
+Fixpoint alloc_i (rmap:region_map) (i: instr) : cexec (region_map * cmd) :=
   let (ii, ir) := i in
 
     match ir with
@@ -1236,6 +1241,9 @@ Fixpoint alloc_i sao (rmap:region_map) (i: instr) : cexec (region_map * cmd) :=
         Let es := add_iinfo ii (alloc_es rmap e) in
         Let: (rmap, rs) := add_iinfo ii (alloc_lvals rmap rs (sopn_tout o)) in
         Let args := split_mem_opn rs o es in
+        let ii :=
+          if size args > 1 then warning ii Split_memory_access else ii
+        in
         ok (rmap, map (i_of_copn_args ii t) args)
 
     | Csyscall rs o es =>
@@ -1243,17 +1251,17 @@ Fixpoint alloc_i sao (rmap:region_map) (i: instr) : cexec (region_map * cmd) :=
 
     | Cif e c1 c2 =>
       Let e := add_iinfo ii (alloc_e rmap e) in
-      Let c1 := fmapM (alloc_i sao) rmap c1 in
-      Let c2 := fmapM (alloc_i sao) rmap c2 in
+      Let c1 := fmapM alloc_i rmap c1 in
+      Let c2 := fmapM alloc_i rmap c2 in
       let rmap:= merge c1.1 c2.1 in
       ok (rmap, [:: MkI ii (Cif e (flatten c1.2) (flatten c2.2))])
 
     | Cwhile a c1 e c2 =>
       let check_c rmap :=
-        Let c1 := fmapM (alloc_i sao) rmap c1 in
+        Let c1 := fmapM alloc_i rmap c1 in
         let rmap1 := c1.1 in
         Let e := add_iinfo ii (alloc_e rmap1 e) in
-        Let c2 := fmapM (alloc_i sao) rmap1 c2 in
+        Let c2 := fmapM alloc_i rmap1 c2 in
         ok ((rmap1, c2.1), (e, (c1.2, c2.2))) in
       Let r := loop2 ii check_c Loop.nb rmap in
       ok (r.1, [:: MkI ii (Cwhile a (flatten r.2.2.1) r.2.1 (flatten r.2.2.2))])
@@ -1443,7 +1451,15 @@ Definition init_params mglob stack disj lmap rmap sao_params params :=
   fmapM2 (stk_ierror_no_var "invalid function info")
     (init_param mglob stack) (disj, lmap, rmap) sao_params params.
 
-Definition alloc_fd_aux p_extra mglob (fresh_reg : Ident.name -> stype -> Ident.ident) (local_alloc: funname -> stk_alloc_oracle_t) sao fd : cexec _ufundef :=
+Definition alloc_fd_aux
+  p_extra
+  mglob
+  (fresh_reg : Ident.name -> stype -> Ident.ident)
+  (local_alloc: funname -> stk_alloc_oracle_t)
+  warning
+  sao
+  fd :
+  cexec _ufundef :=
   let vrip := {| vtype := sword Uptr; vname := p_extra.(sp_rip) |} in
   let vrsp := {| vtype := sword Uptr; vname := p_extra.(sp_rsp) |} in
   let vxlen := {| vtype := sword Uptr; vname := fresh_reg (Ident.name_of_string "__len__") (sword Uptr) |} in
@@ -1473,7 +1489,7 @@ Definition alloc_fd_aux p_extra mglob (fresh_reg : Ident.name -> stype -> Ident.
     assert_check (local_size <=? sao.(sao_max_size))%Z
                  (stk_ierror_no_var "sao_max_size too small")
   in
-  Let rbody := fmapM (alloc_i pmap local_alloc sao) rmap fd.(f_body) in
+  Let rbody := fmapM (alloc_i pmap local_alloc warning sao) rmap fd.(f_body) in
   let: (rmap, body) := rbody in
   Let res :=
       check_results pmap rmap paramsi fd.(f_params) sao.(sao_return) fd.(f_res) in
@@ -1486,9 +1502,16 @@ Definition alloc_fd_aux p_extra mglob (fresh_reg : Ident.name -> stype -> Ident.
     f_res := res;
     f_extra := f_extra fd |}.
 
-Definition alloc_fd p_extra mglob (fresh_reg : Ident.name -> stype -> Ident.ident) (local_alloc: funname -> stk_alloc_oracle_t) fn fd :=
+Definition alloc_fd
+  p_extra
+  mglob
+  (fresh_reg : Ident.name -> stype -> Ident.ident)
+  (local_alloc: funname -> stk_alloc_oracle_t)
+  warning
+  fn
+  fd :=
   let: sao := local_alloc fn in
-  Let fd := alloc_fd_aux p_extra mglob fresh_reg local_alloc sao fd in
+  Let fd := alloc_fd_aux p_extra mglob fresh_reg local_alloc warning sao fd in
   let f_extra := {|
         sf_align  := sao.(sao_align);
         sf_stk_sz := sao.(sao_size);
@@ -1578,8 +1601,10 @@ Definition init_map (l:list (var * wsize * Z)) data (gd:glob_decls) : cexec (Mva
                   (stk_ierror_no_var "missing globals") in
   ok mvar.
 
-Definition alloc_prog (fresh_reg : Ident.name -> stype -> Ident.ident)
-    rip rsp global_data global_alloc local_alloc (P:_uprog) : cexec _sprog :=
+Definition alloc_prog
+  (fresh_reg : Ident.name -> stype -> Ident.ident)
+  rip rsp global_data global_alloc local_alloc warning (P : _uprog)
+  : cexec _sprog :=
   Let mglob := init_map  global_alloc global_data P.(p_globs) in
   let p_extra :=  {|
     sp_rip   := rip;
@@ -1587,7 +1612,11 @@ Definition alloc_prog (fresh_reg : Ident.name -> stype -> Ident.ident)
     sp_globs := global_data;
   |} in
   Let _ := assert (rip != rsp) (stk_ierror_no_var "rip and rsp clash") in
-  Let p_funs := map_cfprog_name (alloc_fd  p_extra mglob fresh_reg local_alloc) P.(p_funcs) in
+  Let p_funs :=
+    map_cfprog_name
+      (alloc_fd p_extra mglob fresh_reg local_alloc warning)
+      P.(p_funcs)
+  in
   ok  {| p_funcs  := p_funs;
          p_globs := [::];
          p_extra := p_extra;

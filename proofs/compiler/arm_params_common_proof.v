@@ -76,7 +76,7 @@ Proof.
   by case: app_sopn.
 Qed.
 
-Lemma sem_fopns_equiv gd args s :
+Lemma sem_copns_equiv gd args s :
   ARMCopn_coreP.sem_copns_args gd s args
   = sem_copns_args gd s (map ARMCopn.to_opn args).
 Proof.
@@ -95,7 +95,7 @@ Lemma li_sem gd s xname vi imm :
     ].
 Proof.
   have [vm' []] := ARMCopn_coreP.li_sem_copns_args gd s xname vi imm.
-  rewrite sem_fopns_equiv => h1 h2 h3.
+  rewrite sem_copns_equiv => h1 h2 h3.
   by exists vm'.
 Qed.
 Opaque ARMCopn.li.
