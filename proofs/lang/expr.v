@@ -235,6 +235,9 @@ Definition mk_lvar x := {| gv := x; gs := Slocal |}.
 Definition is_lvar (x:gvar) := x.(gs) == Slocal.
 Definition is_glob (x:gvar) := x.(gs) == Sglob.
 
+Lemma gvar_surj x : {| gv := gv x; gs := gs x; |} = x.
+Proof. by case: x. Qed.
+
 Inductive pexpr : Type :=
 | Pconst :> Z -> pexpr
 | Pbool  :> bool -> pexpr

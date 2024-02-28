@@ -381,6 +381,46 @@ Lemma read_e_PappN_cons opn e es :
   Sv.Equal (read_e (PappN opn (e :: es))) (Sv.union (read_e e) (read_es es)).
 Proof. by rewrite -[read_e (PappN _ _)]/(read_es _) read_es_cons. Qed.
 
+Lemma read_gvarP x :
+  Sv.Subset (read_gvar x) (Sv.singleton (v_var (gv x))).
+Proof.
+  rewrite /read_gvar.
+  move: x => [[x xinfo] []] //.
+  exact: SvP.MP.subset_empty.
+Qed.
+
+Lemma read_e_cast_w ws e :
+  Sv.Equal (read_e (cast_w ws e)) (read_e e).
+Proof.
+  elim: e =>
+    [ //|//|//|//
+    | ??? e hinde
+    | ???? e hinde
+    | ?? e hinde
+    | op e hinde
+    | op e0 hinde0 e1 hinde1
+    | ? es0 hindes0
+    | ? e hinde e0 hinde0 e1 hinde1
+    ];
+  rewrite
+    ?( read_e_Pget
+     , read_e_Psub
+     , read_e_Pload
+     , read_e_Papp1
+     , read_e_Papp2
+     , read_e_Pif
+     ) //.
+  - case: op; try (move=> *; by rewrite !read_e_Papp1).
+    + move=> ? /=. by case: ifP.
+    by move=> [].
+  case: op => /=;
+    match goal with
+    | [ |- forall (op : op_kind), _ ] => move=> [] *
+    end || move=> *;
+    rewrite ?(read_e_Papp1, read_e_Papp2);
+    by [| rewrite ?hinde0 ?hinde1 ].
+Qed.
+
 Lemma read_rvE s x: Sv.Equal (read_rv_rec s x) (Sv.union s (read_rv x)).
 Proof.
   case: x => //= *; rewrite /read_rv /= ?read_eE; clear; SvD.fsetdec.

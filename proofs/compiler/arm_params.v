@@ -99,11 +99,13 @@ Definition split_mem_opn
   cexec (seq copn_args) :=
   if split_mem_opn_match_lvs lvs is Some (ws, vbase, eoff)
   then
+    (* STR *)
     let '(pre, eoff) := lower_mem_off tmp eoff in
     ok (rcons pre ([:: Lmem ws vbase eoff ], op, es))
   else
     if split_mem_opn_match_es es is Some (ws, vbase, eoff)
     then
+      (* LDR *)
       let '(pre, eoff) := lower_mem_off tmp eoff in
       ok (rcons pre (lvs, op, [:: Pload ws vbase eoff ]))
     else

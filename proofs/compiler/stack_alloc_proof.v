@@ -819,8 +819,182 @@ Lemma mk_ofsiP wdb gd s e i aa sz :
 Proof. by case: e => //= _ [->]. Qed.
 
 Section EXPR.
-  Variables (rmap:region_map) (m0:mem) (s:estate) (s':estate).
-  Hypothesis (hvalid: valid_state rmap m0 s s').
+
+  Lemma check_diffP x t :
+    check_diff pmap x = ok t ->
+    ~ Sv.In x (vnew pmap).
+  Proof. rewrite /check_diff. by case: ifPn => /Sv_memP. Qed.
+
+  Section READ_E_ALLOC.
+
+  Lemma read_e_check_diff x sc :
+    check_diff pmap x = ok tt ->
+    ~ Sv.In (vxlen pmap) (read_gvar (Pvar {| gv := x; gs := sc; |})).
+  Proof.
+    move=> /check_diffP hnnew /read_gvarP /Sv.singleton_spec h.
+    apply: hnnew.
+    rewrite -h.
+    exact: len_in_new.
+  Qed.
+
+  Lemma read_e_mk_ofs aa ws e z :
+    Sv.Equal (read_e (mk_ofs aa ws e z)) (read_e e).
+  Proof.
+    rewrite /mk_ofs.
+    case: is_constP => [?|?]; first by rewrite read_e_Papp1 /read_e.
+    rewrite !read_e_Papp2 !read_e_Papp1 read_e_cast_w
+      ![read_e (Pconst _)]/read_e /=.
+    clear; SvD.fsetdec.
+  Qed.
+
+  Lemma vxlen_base_ptr sc :
+    vxlen pmap <> base_ptr pmap sc.
+  Proof. case: sc. exact: len_neq_rsp. exact: len_neq_rip. Qed.
+
+  Lemma read_e_mk_addr x aa ws vpk e x' e' :
+    mk_addr pmap (gv x) aa ws vpk e = ok (x', e') ->
+    ~ Sv.In (vxlen pmap) (read_e e) ->
+    get_var_kind pmap x = ok (Some vpk) ->
+    ~ Sv.In (vxlen pmap) (Sv.add x' (read_e e')).
+  Proof.
+    move=> h he hx.
+    move: h.
+    rewrite /mk_addr /addr_from_vpk.
+    case: vpk hx => [zws|[||//]]; t_xrbindP.
+    - move=> _ [y z] [??] /= ??; subst.
+      move=> /(SvD.F.add_3 (nesym len_neq_rip)).
+      by rewrite read_e_mk_ofs.
+    - move=> ???? sc _ [??] [?] ???; subst.
+      rewrite /= read_e_mk_ofs.
+      by move=> /(SvD.F.add_3 (nesym (vxlen_base_ptr (sc := _)))).
+    move=> ? hpk [??] [?] ???; subst.
+    rewrite /= read_e_mk_ofs => h.
+    apply: he.
+    apply: (SvD.F.add_3 _ h).
+    move: hpk.
+    rewrite /get_var_kind.
+    case: is_glob; t_xrbindP=> //=.
+    apply: obindP => pk hpk [?]; subst.
+    symmetry.
+    exact: (len_neq_ptr hpk).
+  Qed.
+
+  Let Pe rmap e :=
+    forall e',
+      alloc_e pmap rmap e = ok e' ->
+      ~ Sv.In (vxlen pmap) (read_e e').
+
+  Let Pes rmap es :=
+    forall es',
+      alloc_es pmap rmap es = ok es' ->
+      ~ Sv.In (vxlen pmap) (read_es es').
+
+  #[local]
+  Lemma read_e_alloc_e_aux rmap :
+    (forall e, Pe rmap e) * (forall es, Pes rmap es).
+  Proof.
+    apply: pexprs_ind_pair.
+    rewrite /Pe /Pes.
+    split=> //=.
+    - by move=> ? [<-] /SvD.F.empty_iff.
+    - move=> e he es hes ?.
+      t_xrbindP=> e' /he{he} he' es' /hes{hes} hes' <- /=.
+      rewrite read_es_cons.
+      exact: SvP.MP.not_in_union.
+    - by move=> ?? [<-] /SvD.F.empty_iff.
+    - by move=> ?? [<-] /SvD.F.empty_iff.
+    - by move=> ?? [<-] /SvD.F.empty_iff.
+    - move=> [x sc] e'.
+      t_xrbindP=> -[vpk|] hx; last first.
+      + t_xrbindP=> /(read_e_check_diff (sc := sc)) ? <-. by rewrite read_e_var.
+      case hty: is_word_type => [ws | //]; move /is_word_typeP in hty.
+      t_xrbindP=> h [xi ei] haddr <- /=.
+      rewrite read_e_Pload.
+      apply: (read_e_mk_addr haddr) => //.
+      by move=> /SvD.F.empty_iff.
+    - move=> ?? [x sc] ? he e.
+      t_xrbindP=> e' /he {he} he' [vpk|] hvpk; t_xrbindP.
+      + move=> _ [??] /read_e_mk_addr /(_ he' hvpk) h ?; subst e.
+        by rewrite read_e_Pload.
+      t_xrbindP=> /(read_e_check_diff (sc := sc)) ? <-.
+      rewrite read_e_Pget.
+      by eauto using SvP.MP.not_in_union.
+    - t_xrbindP=> ? x ? he e _ /(read_e_check_diff (sc := Slocal))
+        /Sv.singleton_spec /= hx.
+      move=> e' /he{he} he' ?; subst e.
+      rewrite read_e_Pload.
+      by move=> /(SvD.F.add_3 (nesym hx)).
+    - t_xrbindP=> ?? h _ ? /h{h} ? <-. by rewrite read_e_Papp1.
+    - t_xrbindP=> ?? h0 ? h1 _ ? /h0{h0} ?? /h1{h1} ? <-.
+      rewrite read_e_Papp2.
+      exact: SvP.MP.not_in_union.
+    - by t_xrbindP=> ?? h _ ? /h{h} ? <-.
+      t_xrbindP=> ?? h0 ? h1 ? h2 _ ? /h0{h0} ?? /h1{h1} ?? /h2{h2} ? <-.
+      rewrite read_e_Pif.
+      by auto using SvP.MP.not_in_union.
+  Qed.
+
+  Definition read_e_alloc_e rmap e := (read_e_alloc_e_aux rmap).1 e.
+  Definition read_es_alloc_es rmap es := (read_e_alloc_e_aux rmap).2 es.
+
+  Lemma read_rv_alloc_lval rmap rmap' lv ty lv' :
+    alloc_lval pmap rmap lv ty = ok (rmap', lv') ->
+    ~ Sv.In (vxlen pmap) (read_rv lv').
+  Proof.
+    case: lv => [ vi ty' | vi | ws x e | aa ws x e | //] /=.
+    - by move=> [_ <-] /SvD.F.empty_iff.
+    - case: get_local => [pk|].
+      + case: is_word_type => [?|//].
+        case: ty => // ws.
+        case: ifP => // _.
+        rewrite /mk_addr_ptr.
+        t_xrbindP=> -[??] [??] /= hpk [??] ? hsc ? _ _ ?; subst.
+        case: pk hpk hsc => // ????? [??]; subst; rewrite /read_rv /=.
+        move=> _ /Sv.singleton_spec.
+        exact: vxlen_base_ptr.
+      by t_xrbindP=> _ _ <- /SvD.F.empty_iff.
+    - t_xrbindP=> hx /(read_e_check_diff (sc := Slocal)) hdiff e'
+        /read_e_alloc_e he' ??;
+        subst lv' rmap'.
+      rewrite /= read_eE.
+      exact: SvP.MP.not_in_union.
+    case h: get_local => [pk|]; t_xrbindP=> e' /read_e_alloc_e he'.
+    rewrite /set_arr_word /=.
+    - move=> ? _ [??] hpk ??; subst.
+      case: pk hpk h => [????? | ? | //] [??] h;
+        subst;
+        rewrite /= read_eE;
+        (apply: SvP.MP.not_in_union; first by rewrite read_e_mk_ofs).
+      + move=> /Sv.singleton_spec. exact: vxlen_base_ptr.
+      move=> /Sv.singleton_spec.
+      apply: len_neq_ptr.
+      eassumption.
+    move=> /(read_e_check_diff (sc := Slocal)) ???; subst.
+    rewrite /= read_eE.
+    exact: SvP.MP.not_in_union.
+  Qed.
+
+  Lemma read_rvs_alloc_lvals rmap rmap' lvs tys lvs' :
+    alloc_lvals pmap rmap lvs tys = ok (rmap', lvs') ->
+    ~ Sv.In (vxlen pmap) (read_rvs lvs').
+  Proof.
+    elim: lvs tys lvs' rmap rmap'
+      => [|lv lvs hind] [|ty tys] lvs' rmap rmap' //=.
+    - by move=> [_ <-] /SvD.F.empty_iff.
+    t_xrbindP=> -[??] /read_rv_alloc_lval ? [??] /= /hind ? ??; subst.
+    rewrite read_rvs_cons.
+    exact: SvP.MP.not_in_union.
+  Qed.
+
+  End READ_E_ALLOC.
+
+  Context
+    (rmap : region_map)
+    (m0 : mem)
+    (s : estate)
+    (s' : estate)
+    (hvalid : valid_state rmap m0 s s')
+  .
 
   (* If [x] is a register, it is not impacted by the presence of global
      variables per hypothesis [vs_eq_vm].
@@ -1076,9 +1250,6 @@ Section EXPR.
     + by have := get_gvar_undef hget erefl.
     by exists ws', w.
   Qed.
-
-  Lemma check_diffP x t : check_diff pmap x = ok t -> ~Sv.In x (vnew pmap).
-  Proof. by rewrite /check_diff; case:ifPn => /Sv_memP. Qed.
 
   (* Maybe a bit too specialized. *)
   Lemma ofs_bound_option z len size ofs :
@@ -2362,7 +2533,8 @@ Definition split_mem_opn_correct
     sem_sopn (p_globs sp) op s lvs es = ok s' ->
     let: c := [seq i_of_copn_args ii tag a | a <- args ] in
     exists2 vm,
-      sem sp evt s c (with_vm s' vm) & vm =[\ Sv.singleton vtmp ] evm s'.
+      sem sp evt s c (with_vm s' vm)
+      & vm =[\ Sv.singleton vtmp ] evm s'.
 
 Record h_stack_alloc_params (saparams : stack_alloc_params) :=
   {

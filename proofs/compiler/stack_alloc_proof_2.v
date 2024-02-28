@@ -1982,10 +1982,9 @@ Proof.
   have [||||vm hsem hvm] :=
     sap_split_mem_opnP
       hsaparams (s := s1') (s' := s2') (sp := P') rip ii2 t hsplit.
-  + exact: (wt_len (wf_pmap := hpmap)).
-    move=> /= ?.
-  + admit.
-  + admit.
+  + exact: wt_len.
+  + apply: read_rvs_alloc_lvals. eassumption.
+  + apply: read_es_alloc_es. eassumption.
   + by rewrite /sem_sopn P'_globs /=
       (alloc_esP hwf.(wfsl_no_overflow) hwf.(wfsl_align) _ _ _ hes) //= hop.
   eexists; split; first exact: hsem.
@@ -1994,7 +1993,7 @@ Proof.
   + exact: len_neq_rsp.
   + exact: len_in_new.
   exact: len_neq_ptr.
-Admitted.
+Qed.
 
 Local Lemma Hsyscall : sem_Ind_syscall P Pi_r.
 Proof.
