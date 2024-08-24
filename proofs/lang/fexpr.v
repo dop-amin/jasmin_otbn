@@ -1,4 +1,5 @@
 From mathcomp Require Import ssreflect ssrfun ssrbool.
+From mathcomp Require Import ssralg.
 From Coq Require Import Utf8.
 Require Import expr.
 
@@ -17,6 +18,20 @@ Inductive fexpr :=
 (* --------------------------------------------------------------------------- *)
 Definition fconst (ws: wsize) (z: Z) : fexpr :=
   Fapp1 (Oword_of_int ws) (Fconst z).
+
+Definition is_fconst (e : fexpr) : option Z :=
+  if e is Fconst z then Some z else None.
+
+Definition is_fwconst (ws : wsize) (e : fexpr) : option (word ws) :=
+  match e with
+  | Fapp1 (Oword_of_int ws') e =>
+      if (ws <= ws')%CMP
+      then
+        let%opt n := is_fconst e in
+        Some (wrepr ws n)
+      else None
+  | _ => None
+  end.
 
 (* --------------------------------------------------------------------------- *)
 (* Right-expressions *)

@@ -46,6 +46,20 @@ Context
   (wdb : bool)
   (gd : glob_decls).
 
+Lemma is_fconstP e z :
+  is_fconst e = Some z <-> e = Fconst z.
+Proof. case: e => *; by split=> // -[->]. Qed.
+
+Lemma is_fwconstP vm sz e w :
+  is_fwconst sz e = Some w ->
+  Let x := sem_fexpr vm e in to_word sz x = ok w.
+Proof.
+  case: e => // -[] //= ws e.
+  case: ifP => // hws.
+  apply: obindP => z /is_fconstP ? [?]; subst e w.
+  by rewrite /= truncate_word_le // zero_extend_wrepr.
+Qed.
+
 Lemma fexpr_of_pexprP s e f v :
   fexpr_of_pexpr e = Some f →
   sem_pexpr true gd s e = ok v →

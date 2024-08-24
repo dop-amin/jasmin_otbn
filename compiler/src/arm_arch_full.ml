@@ -98,6 +98,8 @@ module Arm_core = struct
     | Oarm_swap _ -> true
     | Oarm_add_large_imm -> true
     | (Osmart_li _ | Osmart_li_cc _) -> true (* emit MOVT *)
+    | Olarge_load _ -> true (* emit MOV, MOVT, LDR *)
+    | Olarge_store _ -> true (* emit MOV, MOVT, STR *)
 
 end
 
