@@ -81,6 +81,8 @@ Variant rv_mnemonic :=
   (* TODO_OTBN: Move to otbn_extra. *)
   | MOV  (* Printed as [ADD x, y, x0]. *)
   | NEG  (* Printed as [SUB x, x0, y]. *)
+
+  | NOP (* No operation. *)
 .
 
 Scheme Equality for rv_mnemonic.
@@ -103,7 +105,7 @@ Canonical rv_mnemonic_eqType := ceqT_eqType (ceqT := eqTC_rv_mnemonic).
 
 Definition rv_mnemonics : seq rv_mnemonic :=
   [:: ADD; ADDI; SUB; AND; ANDI; OR; ORI; XOR; XORI; SLL; SLLI; SRL; SRLI; SRA
-    ; SRAI; LUI; LW; SW; LI; LA; MOV; NEG
+    ; SRAI; LUI; LW; SW; LI; LA; MOV; NEG; NOP
   ].
 
 Lemma rv_mnemonic_fin_axiom : Finite.axiom rv_mnemonics.
@@ -139,6 +141,7 @@ Definition string_of_rv_mnemonic (mn : rv_mnemonic) : string :=
   | LA => "LA"
   | MOV => "MOV"
   | NEG => "NEG"
+  | NOP => "NOP"
   end.
 
 (* Basic big number arithmetic.
@@ -430,6 +433,7 @@ Definition rv_chk_args : arg_kind * (word ws -> exec unit) :=
   | LI => imm wunsigned 0 (wbase reg_size)
   | MOV | NEG => reg
   | LA => addr
+  | NOP => addr (* Never happens. *)
   end.
 
 Definition _desc_rv_unop
@@ -476,6 +480,26 @@ Definition desc_rv_binop
     id_pp_asm := pp_rv_op mn;
   |}.
 
+Definition desc_rv_nop
+  : instr_desc_t :=
+  {|
+    id_msb_flag := MSB_MERGE;
+    id_tin := [:: ];
+    id_in := [:: ];
+    id_tout := [:: ];
+    id_out := [:: ];
+    id_semi := ok tt;
+    id_nargs := 0;
+    id_args_kinds := [:: [:: ]];
+    id_eq_size := refl_equal;
+    id_tin_narr := refl_equal;
+    id_tout_narr := refl_equal;
+    id_check_dest := refl_equal;
+    id_str_jas := pp_s (string_of_rv_mnemonic mn);
+    id_safe := [::];
+    id_pp_asm := pp_rv_op mn;
+  |}.
+
 Definition _desc_rv_mnemonic : instr_desc_t :=
   let wshl' x y := wshl x (wunsigned y) in
   let wshr' x y := wshr x (wunsigned y) in
@@ -496,6 +520,7 @@ Definition _desc_rv_mnemonic : instr_desc_t :=
   | LA => _desc_rv_unop (Ec 1) (E 0) id
   | MOV => desc_rv_unop id
   | NEG => desc_rv_unop wneg
+  | NOP => desc_rv_nop
   end.
 
 End RV_DESC.

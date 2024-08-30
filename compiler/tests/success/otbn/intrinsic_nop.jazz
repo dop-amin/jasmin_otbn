@@ -1,0 +1,4 @@
+export
+fn nop(reg u32 arg0) {
+    () = #NOP();
+}
