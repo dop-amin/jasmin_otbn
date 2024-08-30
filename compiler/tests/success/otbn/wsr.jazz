@@ -3,5 +3,13 @@ fn wsr(reg u256 x) -> reg u256 {
     reg u256 acc;
     acc = #BN_ACCW(x);
     x = #BN_ACCR(acc);
+
+    reg u256 mod;
+    mod = #BN_MODW(x);
+    x = #BN_MODR(mod);
+
+    reg u256 rnd;
+    rnd = #BN_RNDW(x);
+    x = #BN_RNDR(rnd);
     return x;
 }

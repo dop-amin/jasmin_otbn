@@ -239,6 +239,8 @@ Variant otbn_op :=
   | BN_ACCW  (* Write from wide register to ACC register. *)
   | BN_MODR  (* Read from MOD register to wide register. *)
   | BN_MODW  (* Write from wide register to MOD register. *)
+  | BN_RNDR  (* Read from RND register to wide register. *)
+  | BN_RNDW  (* Write from wide register to RND register (ignored). *)
 
   | BN_LID
   | BN_SID
@@ -283,6 +285,8 @@ Definition string_of_otbn_op (op : otbn_op) : string :=
   | BN_ACCW => "BN.ACCW"
   | BN_MODR => "BN.MODR"
   | BN_MODW => "BN.MODW"
+  | BN_RNDR => "BN.RNDR"
+  | BN_RNDW => "BN.RNDW"
   | BN_LID => "BN.LID"
   | BN_SID => "BN.SID"
   end.
@@ -363,6 +367,7 @@ Section PP_ASM_OP.
     in
     match op with
     | BN_MODR | BN_MODW => Imm (wrepr U8 0x0)
+    | BN_RNDR | BN_RNDW => Imm (wrepr U8 0x1)
     | BN_ACCR | BN_ACCW => Imm (wrepr U8 0x3)
     | _ => Addr (Areg err) (* Never happens, will give an error. *)
     end.
@@ -375,8 +380,8 @@ Section PP_ASM_OP.
         if ohead args is Some a0
         then mk (string_of_rv_mnemonic SUB) (a0 :: x0 :: behead args)
         else error
-    | BN_ACCR | BN_MODR => mk "bn.wsrr" (rcons args (wr_number op))
-    | BN_ACCW | BN_MODW => mk "bn.wsrw" (wr_number op :: args)
+    | BN_ACCR | BN_MODR | BN_RNDR => mk "bn.wsrr" (rcons args (wr_number op))
+    | BN_ACCW | BN_MODW | BN_RNDW => mk "bn.wsrw" (wr_number op :: args)
     | _ => mk (string_of_otbn_op op) args
     end.
 
@@ -1343,6 +1348,8 @@ Definition desc_otbn_op (op : otbn_op) : instr_desc_t :=
   | BN_ACCW => desc_BN_WSR op (E 0) (Xreg ACC)
   | BN_MODR => desc_BN_WSR op (Xreg MOD) (E 0)
   | BN_MODW => desc_BN_WSR op (E 0) (Xreg MOD)
+  | BN_RNDR => desc_BN_WSR op (Xreg RND) (E 0)
+  | BN_RNDW => desc_BN_WSR op (E 0) (Xreg RND)
   | BN_LID => desc_BN_indirect BN_LID false
   | BN_SID => desc_BN_indirect BN_SID true
   end.
@@ -1383,7 +1390,7 @@ Section PRIM_STRING.
       string_of_otbn_op
       (PrimOTBN_none (asm_op := otbn_op))
       [:: BN_MOV; BN_RSHI; BN_ADDM; BN_SUBM; BN_ACCR; BN_ACCW; BN_MODR
-        ; BN_MODW
+        ; BN_MODW; BN_RNDR; BN_RNDW
       ].
 
   (* Intrinsic string does not change with flag group or writeback. *)

@@ -28,8 +28,8 @@ Variant register : Type :=
 Definition string_of_register (r : register) : string :=
   match r with
   | X00 => "x0"
-  | X01 => "ra"
-  | X02 => "sp"
+  | X01 => "x1"
+  | X02 => "x2"
   | X03 => "x3"
   | X04 => "x4"
   | X05 => "x5"
@@ -71,7 +71,7 @@ Variant wide_register : Type :=
   | W26 | W27 | W28 | W29 | W30 | W31
 
   (* TODO_OTBN: These two shold be extended extra registers. *)
-  | ACC | MOD
+  | ACC | MOD | RND
 .
 
 Definition string_of_wide_register (w : wide_register) : string :=
@@ -110,6 +110,7 @@ Definition string_of_wide_register (w : wide_register) : string :=
   | W31 => "w31"
   | ACC => "acc"
   | MOD => "mod"
+  | RND => "rnd"
   end.
 
 

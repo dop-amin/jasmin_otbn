@@ -176,6 +176,7 @@ Section ASSEMBLE.
     | W31 => Some 31
     | ACC => None
     | MOD => None
+    | RND => None
     end%Z.
 
   Definition assemble_bn_indirect_load
