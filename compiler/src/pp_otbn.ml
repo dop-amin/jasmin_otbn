@@ -47,7 +47,8 @@ end
 let arch = otbn_decl
 let imm_pre = ""
 let global_data_label = "glob_data"
-let headers = []
+let headers = [".section .text.start"] (* put directives *)
+let data_directives = [".data"; ".balign 32"]
 let iwidth = 15
 
 let pp_reg_address_aux base disp off scal =
@@ -378,9 +379,10 @@ let pp_data globs =
 
 let pp_prog p =
   let headers = List.map (fun s -> LInstr (s, [])) headers in
+  let data_directives = List.map (fun s -> LInstr (s, [])) data_directives in
   let code = pp_funcs p.asm_funcs in
   let data = pp_data p.asm_globs in
-  headers @ code @ data
+  headers @ code @ data_directives @ data
 
 let print_instr s fmt i = print_asm_lines fmt (pp_instr s i)
 let print_prog fmt p = print_asm_lines fmt (pp_prog p)
