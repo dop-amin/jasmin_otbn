@@ -244,6 +244,14 @@ Variant otbn_op :=
   | BN_MODW  (* Write from wide register to MOD register. *)
   | BN_RNDR  (* Read from RND register to wide register. *)
   | BN_RNDW  (* Write from wide register to RND register (ignored). *)
+  | BN_KEY_S0_L_R  (* Read from KEY_S0_L register to wide register. *)
+  | BN_KEY_S0_L_W  (* Write to KEY_S0_L register is ignored. *)
+  | BN_KEY_S0_H_R  (* Read from KEY_S0_H register to wide register. *)
+  | BN_KEY_S0_H_W  (* Write to KEY_S0_H register is ignored. *)
+  | BN_KEY_S1_L_R  (* Read from KEY_S1_L register to wide register. *)
+  | BN_KEY_S1_L_W  (* Write to KEY_S1_L register is ignored. *)
+  | BN_KEY_S1_H_R  (* Read from KEY_S1_H register to wide register. *)
+  | BN_KEY_S1_H_W  (* Write to KEY_S1_H register is ignored. *)
 
   | BN_LID
   | BN_SID
@@ -290,6 +298,14 @@ Definition string_of_otbn_op (op : otbn_op) : string :=
   | BN_MODW => "BN.MODW"
   | BN_RNDR => "BN.RNDR"
   | BN_RNDW => "BN.RNDW"
+  | BN_KEY_S0_L_R => "BN.KEY_S0_L_R"
+  | BN_KEY_S0_L_W => "BN.KEY_S0_L_W"
+  | BN_KEY_S0_H_R => "BN.KEY_S0_H_R"
+  | BN_KEY_S0_H_W => "BN.KEY_S0_H_W"
+  | BN_KEY_S1_L_R => "BN.KEY_S1_L_R"
+  | BN_KEY_S1_L_W => "BN.KEY_S1_L_W"
+  | BN_KEY_S1_H_R => "BN.KEY_S1_H_R"
+  | BN_KEY_S1_H_W => "BN.KEY_S1_H_W"
   | BN_LID => "BN.LID"
   | BN_SID => "BN.SID"
   end.
@@ -372,6 +388,10 @@ Section PP_ASM_OP.
     | BN_MODR | BN_MODW => Imm (wrepr U8 0x0)
     | BN_RNDR | BN_RNDW => Imm (wrepr U8 0x1)
     | BN_ACCR | BN_ACCW => Imm (wrepr U8 0x3)
+    | BN_KEY_S0_L_R | BN_KEY_S0_L_W => Imm (wrepr U8 0x4)
+    | BN_KEY_S0_H_R | BN_KEY_S0_H_W => Imm (wrepr U8 0x5)
+    | BN_KEY_S1_L_R | BN_KEY_S1_L_W => Imm (wrepr U8 0x6)
+    | BN_KEY_S1_H_R | BN_KEY_S1_H_W => Imm (wrepr U8 0x7)
     | _ => Addr (Areg err) (* Never happens, will give an error. *)
     end.
 
@@ -383,8 +403,8 @@ Section PP_ASM_OP.
         if ohead args is Some a0
         then mk (string_of_rv_mnemonic SUB) (a0 :: x0 :: behead args)
         else error
-    | BN_ACCR | BN_MODR | BN_RNDR => mk "bn.wsrr" (rcons args (wr_number op))
-    | BN_ACCW | BN_MODW | BN_RNDW => mk "bn.wsrw" (wr_number op :: args)
+    | BN_ACCR | BN_MODR | BN_RNDR | BN_KEY_S0_L_R | BN_KEY_S0_H_R | BN_KEY_S1_L_R | BN_KEY_S1_H_R => mk "bn.wsrr" (rcons args (wr_number op))
+    | BN_ACCW | BN_MODW | BN_RNDW | BN_KEY_S0_L_W | BN_KEY_S0_H_W | BN_KEY_S1_L_W | BN_KEY_S1_H_W => mk "bn.wsrw" (wr_number op :: args)
     | _ => mk (string_of_otbn_op op) args
     end.
 
@@ -1375,6 +1395,14 @@ Definition desc_otbn_op (op : otbn_op) : instr_desc_t :=
   | BN_MODW => desc_BN_WSR op (E 0) (Xreg MOD)
   | BN_RNDR => desc_BN_WSR op (Xreg RND) (E 0)
   | BN_RNDW => desc_BN_WSR op (E 0) (Xreg RND)
+  | BN_KEY_S0_L_R => desc_BN_WSR op (Xreg KEY_S0_L) (E 0)
+  | BN_KEY_S0_L_W => desc_BN_WSR op (E 0) (Xreg KEY_S0_L)
+  | BN_KEY_S0_H_R => desc_BN_WSR op (Xreg KEY_S0_H) (E 0)
+  | BN_KEY_S0_H_W => desc_BN_WSR op (E 0) (Xreg KEY_S0_H)
+  | BN_KEY_S1_L_R => desc_BN_WSR op (Xreg KEY_S1_L) (E 0)
+  | BN_KEY_S1_L_W => desc_BN_WSR op (E 0) (Xreg KEY_S1_L)
+  | BN_KEY_S1_H_R => desc_BN_WSR op (Xreg KEY_S1_H) (E 0)
+  | BN_KEY_S1_H_W => desc_BN_WSR op (E 0) (Xreg KEY_S1_H)
   | BN_LID => desc_BN_indirect BN_LID false
   | BN_SID => desc_BN_indirect BN_SID true
   end.
@@ -1416,6 +1444,8 @@ Section PRIM_STRING.
       (PrimOTBN_none (asm_op := otbn_op))
       [:: BN_MOV; BN_RSHI; BN_ADDM; BN_SUBM; BN_ACCR; BN_ACCW; BN_MODR
         ; BN_MODW; BN_RNDR; BN_RNDW
+        ; BN_KEY_S0_L_R; BN_KEY_S0_L_W; BN_KEY_S0_H_R; BN_KEY_S0_H_W
+        ; BN_KEY_S1_L_R; BN_KEY_S1_L_W; BN_KEY_S1_H_R; BN_KEY_S1_H_W
       ].
 
   (* Intrinsic string does not change with flag group or writeback. *)

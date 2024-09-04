@@ -71,7 +71,7 @@ Variant wide_register : Type :=
   | W26 | W27 | W28 | W29 | W30 | W31
 
   (* TODO_OTBN: These two shold be extended extra registers. *)
-  | ACC | MOD | RND
+  | ACC | MOD | RND | KEY_S0_L | KEY_S0_H | KEY_S1_L | KEY_S1_H
 .
 
 Definition string_of_wide_register (w : wide_register) : string :=
@@ -111,6 +111,10 @@ Definition string_of_wide_register (w : wide_register) : string :=
   | ACC => "acc"
   | MOD => "mod"
   | RND => "rnd"
+  | KEY_S0_L => "key_s0_l"
+  | KEY_S0_H => "key_s0_h"
+  | KEY_S1_L => "key_s1_l"
+  | KEY_S1_H => "key_s1_h"
   end.
 
 

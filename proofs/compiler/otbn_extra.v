@@ -177,6 +177,10 @@ Section ASSEMBLE.
     | ACC => None
     | MOD => None
     | RND => None
+    | KEY_S0_L => None
+    | KEY_S0_H => None
+    | KEY_S1_L => None
+    | KEY_S1_H => None
     end%Z.
 
   Definition assemble_bn_indirect_load

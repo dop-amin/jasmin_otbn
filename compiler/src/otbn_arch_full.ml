@@ -28,7 +28,7 @@ module OTBN_core = struct
   let known_implicits = ["CF", "_cf_"; "MF", "_mf_"; "LF", "_lf_"; "ZF", "_zf_"]
 
   let reg_unallocatable = [ X00; X01 ]
-  let xreg_unallocatable = [ ACC; MOD; RND ]
+  let xreg_unallocatable = [ ACC; MOD; RND; KEY_S0_L; KEY_S0_H; KEY_S1_L; KEY_S1_H ]
 end
 
 module OTBN (Input : OTBN_input) : Arch_full.Core_arch = struct

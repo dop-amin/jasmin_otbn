@@ -11,5 +11,22 @@ fn wsr(reg u256 x) -> reg u256 {
     reg u256 rnd;
     rnd = #BN_RNDW(x);
     x = #BN_RNDR(rnd);
+
+    reg u256 key_s0_l;
+    key_s0_l = #BN_KEY_S0_L_W(x);
+    x = #BN_KEY_S0_L_R(key_s0_l);
+
+    reg u256 key_s0_h;
+    key_s0_h = #BN_KEY_S0_H_W(x);
+    x = #BN_KEY_S0_H_R(key_s0_h);
+
+    reg u256 key_s1_l;
+    key_s1_l = #BN_KEY_S1_L_W(x);
+    x = #BN_KEY_S1_L_R(key_s1_l);
+
+    reg u256 key_s1_h;
+    key_s1_h = #BN_KEY_S1_H_W(x);
+    x = #BN_KEY_S1_H_R(key_s1_h);
+
     return x;
 }
